@@ -1,0 +1,5 @@
+pp_taxonomy_manager.overview:
+  title: 'PoolParty Taxonomy Manager'
+  route_name: entity.pp_taxonomy_manager.collection
+  description: 'Manage PoolParty Taxonomy Manager configurations.'
+  parent: semantic_connector.semantic_drupal

@@ -1,0 +1,3 @@
+administer pp_taxonomy_manager:
+  title: 'Administer PoolParty Taxonomy Manager'
+  description: 'Perform administration tasks for the PoolParty Taxonomy Manager.'
