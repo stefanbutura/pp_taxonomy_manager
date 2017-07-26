@@ -167,9 +167,6 @@ class PPTaxonomyManagerSyncForm extends FormBase {
 
     $manager = PPTaxonomyManager::getInstance($config);
 
-    // Set the correct translation mode for the taxonomy.
-    $manager->setTranslationMode($taxonomy, $languages);
-
     // Add URI and alt. label fields (if not exists) to the taxonomy.
     $manager->adaptTaxonomyFields($taxonomy);
 

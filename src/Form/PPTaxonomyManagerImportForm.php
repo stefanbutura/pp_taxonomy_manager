@@ -61,7 +61,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
       ->getConceptSchemes($config->getProjectId());
     $concept_scheme = NULL;
     foreach ($concept_schemes as $scheme) {
-      if ($scheme->uri == $scheme_uri) {
+      if ($scheme['uri'] == $scheme_uri) {
         $concept_scheme = $scheme;
         break;
       }
@@ -74,15 +74,15 @@ class PPTaxonomyManagerImportForm extends FormBase {
     // Check if the taxonomy is already connected with a concept scheme.
     $configuration = $config->getConfig();
     if (in_array($scheme_uri, $configuration['taxonomies'])) {
-      drupal_set_message(t('The concept scheme %scheme is already connected, please select another one.', array('%scheme' => $concept_scheme->title)), 'error');
+      drupal_set_message(t('The concept scheme %scheme is already connected, please select another one.', array('%scheme' => $concept_scheme['title'])), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     // Check if the new taxonomy already exists in Drupal.
-    $machine_name = PPTaxonomyManager::createMachineName($concept_scheme->title);
+    $machine_name = PPTaxonomyManager::createMachineName($concept_scheme['title']);
     $taxonomy = Vocabulary::load($machine_name);
 
-    $description = t('A new taxonomy will be created and all concepts from the concept scheme %scheme will be inserted as terms.', array('%scheme' => $concept_scheme->title));
+    $description = t('A new taxonomy will be created and all concepts from the concept scheme %scheme will be inserted as terms.', array('%scheme' => $concept_scheme['title']));
     $description .= '<br />' . t('This can take a while. Please wait until the import is finished.');
     $form['description'] = array(
       '#markup' => $description,
@@ -97,7 +97,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $form['taxonomy_name'] = array(
       '#title' => t('Name of the new taxonomy'),
       '#type' => 'textfield',
-      '#default_value' => $concept_scheme->title,
+      '#default_value' => $concept_scheme['title'],
       '#description' => $field_description,
       '#required' => TRUE,
     );
@@ -199,18 +199,17 @@ class PPTaxonomyManagerImportForm extends FormBase {
 
     $manager = PPTaxonomyManager::getInstance($config);
 
-    // Create the new taxonomy and set the translation mode.
+    // Create the new taxonomy .
     $taxonomy = $manager->createTaxonomy($concept_scheme, $values['taxonomy_name']);
-    $manager->setTranslationMode($taxonomy, $languages);
 
     // Add URI and alt. labels fields (if not exists) to the taxonomy.
     $manager->adaptTaxonomyFields($taxonomy);
 
     // Connect the new taxonomy with the concept scheme.
-    $manager->addConnection($taxonomy->id(), $concept_scheme->uri, $languages);
+    $manager->addConnection($taxonomy->id(), $concept_scheme['uri'], $languages);
 
     // Import all concepts.
-    $manager->updateTaxonomyTerms($taxonomy, $concept_scheme->uri, $languages, $concepts_per_request);
+    $manager->updateTaxonomyTerms($taxonomy, $concept_scheme['uri'], $languages, $concepts_per_request);
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }
 }

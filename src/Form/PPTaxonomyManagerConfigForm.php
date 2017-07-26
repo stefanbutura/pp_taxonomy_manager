@@ -12,6 +12,7 @@ use Drupal\Core\Entity\EntityForm;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
+use Drupal\node\Entity\NodeType;
 use Drupal\powertagging\Entity\PowerTaggingConfig;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
 use Drupal\semantic_connector\Entity\SemanticConnectorPPServerConnection;
@@ -106,18 +107,19 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
       ->getApi('PPT')
       ->getConceptSchemes($entity->getProjectId());
     $rows = array();
+
     foreach ($concept_schemes as $scheme) {
       $operations = array();
-      if (in_array($scheme->uri, $configuration['taxonomies'])) {
-        $connected[$scheme->uri] = $scheme;
+      if (in_array($scheme['uri'], $configuration['taxonomies'])) {
+        $connected[$scheme['uri']] = $scheme;
         continue;
       }
 
-      $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $scheme->uri))))->toString();
+      $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $scheme['uri']))))->toString();
       $rows[] = array(
         new FormattableMarkup('<div class="semantic-connector-italic">' . t('not yet connected') . '</div>', array()),
         new FormattableMarkup(implode(' | ', $operations), array()),
-        Link::fromTextAndUrl($scheme->title, Url::fromUri($scheme->uri, array('attributes' => array('title' => ((isset($scheme->descriptions) && !empty($scheme->descriptions)) ? $scheme->descriptions[0] : NULL))))),
+        Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array('attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL))))),
       );
     }
 
@@ -134,9 +136,9 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
             $scheme = $connected[$configuration['taxonomies'][$taxonomy->id()]];
             $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Sync from PoolParty'), Url::fromRoute('entity.pp_taxonomy_manager.sync' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id())))->toString();
             $operations[] = Link::fromTextAndUrl(t('Disconnect from PoolParty'), Url::fromRoute('entity.pp_taxonomy_manager.disconnect' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id())))->toString() . ' &rArr;';
-            $concept_scheme = Link::fromTextAndUrl($scheme->title, Url::fromUri($scheme->uri, array(
+            $concept_scheme = Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array(
               'absolut' => TRUE,
-              'attributes' => array('title' => ((isset($scheme->descriptions) && !empty($scheme->descriptions)) ? $scheme->descriptions[0] : NULL)),
+              'attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL)),
             )));
           }
           else {

@@ -11,6 +11,7 @@ use Drupal\Core\Language\LanguageInterface;
 use Drupal\Core\Url;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
 use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
+use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
@@ -84,17 +85,13 @@ class PPTaxonomyManagerExportForm extends FormBase {
     );
 
     // Language mapping.
-    // @todo: multilingualism?
-    /*
-    if (module_exists('i18n_taxonomy') && in_array($taxonomy->i18n_mode, array(
-        I18N_MODE_LOCALIZE,
-        I18N_MODE_TRANSLATE,
-      ))) {
-      $available_languages = language_list();
+    if (\Drupal::moduleHandler()->moduleExists('content_translation') && \Drupal::service('content_translation.manager')->isEnabled('taxonomy_term', $taxonomy->id())) {
+      $available_languages = \Drupal::languageManager()->getLanguages();
     }
-    else {*/
+    else {
       $available_languages = array(\Drupal::languageManager()->getDefaultLanguage());
-    //}
+    }
+
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
     $project_language_options = array();
     foreach ($project->availableLanguages as $project_language) {
@@ -129,15 +126,6 @@ class PPTaxonomyManagerExportForm extends FormBase {
       '#required' => TRUE,
       '#default_value' => 10,
     );
-
-    // @todo: multilingualism
-    /* if (module_exists('i18n_taxonomy') && $taxonomy->i18n_mode == I18N_MODE_LOCALIZE) {
-      $form['info'] = array(
-        '#prefix' => '<p><label>' . t('Attention:') . '</label>',
-        '#markup' => t('The translation mode of this taxonomy will be changed from "Localize" to "Translate" first before the export begins.'),
-        '#suffix' => '</p>',
-      );
-    } */
 
     $form['save'] = array(
       '#type' => 'submit',
@@ -188,9 +176,6 @@ class PPTaxonomyManagerExportForm extends FormBase {
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
 
     $manager = PPTaxonomyManager::getInstance($config);
-
-    // Set the correct translation mode for the taxonomy.
-    $manager->setTranslationMode($taxonomy, $languages);
 
     // Add URI and alt. labels fields (if not exists) to the taxonomy.
     $manager->adaptTaxonomyFields($taxonomy);

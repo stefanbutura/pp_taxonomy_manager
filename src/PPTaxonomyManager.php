@@ -127,43 +127,6 @@ class PPTaxonomyManager {
   }
 
   /**
-   * Set the correct translation mode for the Drupal taxonomy.
-   *
-   * @param object $taxonomy
-   *   A Drupal taxonomy.
-   * @param array $languages
-   *   An array of languages:
-   *    key = Drupal language
-   *    value = PoolParty language.
-   */
-  public function setTranslationMode($taxonomy, $languages) {
-    // @todo: implement method.
-    /*if (!module_exists('i18n_taxonomy')) {
-      return;
-    }
-
-    $language_count = count($languages);
-    $i18n_mode_old = $taxonomy->i18n_mode;
-
-    // Make the taxonomy translatable if the translation module for taxonomies
-    // is installed and more than one language is selected or the translation
-    // mode is wrong.
-    if (($language_count > 1 && $taxonomy->i18n_mode != I18N_MODE_TRANSLATE) || !in_array($taxonomy->i18n_mode, array(
-        I18N_MODE_NONE,
-        I18N_MODE_TRANSLATE,
-      ))
-    ) {
-      $taxonomy->i18n_mode = I18N_MODE_TRANSLATE;
-      taxonomy_vocabulary_save($taxonomy);
-    }
-
-    // If the translation mode was wrong, then change it for all terms.
-    if ($language_count > 1 && $i18n_mode_old == I18N_MODE_LOCALIZE) {
-      $this->changeTranslationMode($taxonomy, $languages);
-    }*/
-  }
-
-  /**
    * Changes the translation mode of a taxonomy from "Localize" to "Translate".
    *
    * @param object $taxonomy
@@ -403,15 +366,9 @@ class PPTaxonomyManager {
 
     // Get the taxonomy tree for the default language.
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
-    // @todo: add multilingualism.
-    /*if (module_exists('i18n_taxonomy') && $vocabulary->i18n_mode == I18N_MODE_TRANSLATE) {
-      $tree = i18n_taxonomy_get_tree($vocabulary->id(), $default_language, 0, NULL, TRUE);
-    }
-    else {*/
-      $tree = \Drupal::service('entity_type.manager')
-        ->getStorage("taxonomy_term")
-        ->loadTree($vocabulary->id(), 0, NULL, TRUE);
-    //}
+    $tree = \Drupal::service('entity_type.manager')
+      ->getStorage("taxonomy_term")
+      ->loadTree($vocabulary->id(), 0, NULL, TRUE);
 
     // Set additional data.
     $count = count($tree);
@@ -447,25 +404,24 @@ class PPTaxonomyManager {
 
     // Set the export translation operations.
     unset($languages[$default_language]);
-    // @todo: add multilingualism.
-    /*if (!empty($languages)) {
+    if (!empty($languages)) {
       foreach ($languages as $drupal_lang => $pp_lang) {
-        $tree = i18n_taxonomy_get_tree($vocabulary->id(), $drupal_lang, 0, NULL, TRUE);
+        /*$tree = i18n_taxonomy_get_tree($vocabulary->id(), $drupal_lang, 0, NULL, TRUE);
         $count = count($tree);
         $info = array(
           'total' => $count,
           'start_time' => $start_time,
-        );
+        );*/
 
         for ($i = 0; $i < $count; $i += $terms_per_request) {
           $terms = array_slice($tree, $i, $terms_per_request);
           $batch['operations'][] = array(
-            'pp_taxonomy_manager_taxonomy_export_translations',
+            array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'exportTermTranslations'),
             array($this, $terms, $drupal_lang, $pp_lang, $info),
           );
         }
       }
-    }*/
+    }
 
     // Set the log operation.
     $batch['operations'][] = array(
@@ -669,15 +625,13 @@ class PPTaxonomyManager {
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
     $project_id = $this->config->getProjectId();
     /** @var Term $term */
-    // @todo: add multilingualism.
-    /*
     foreach ($terms as $term) {
-      // Get the taxonomy term ID from the default language.
-      $default_tid = i18n_taxonomy_translation_term_tid($term->id(), $default_language, FALSE);
-
       // Check if the term with the default language is already exported.
-      if ($default_tid && isset($exported_terms[$default_tid])) {
-        $uri = $exported_terms[$default_tid]['uri'];
+      if (isset($exported_terms[$term->id()]) && $term->hasTranslation($drupal_lang)) {
+        // Get the translated version of the taxonomy term.
+        $term = $term->getTranslation($drupal_lang);
+
+        $uri = $exported_terms[$term->id()]['uri'];
         // Add pref, alt, hidden labels and definition.
         $ppt->addLiteral($project_id, $uri, 'preferredLabel', $term->getName(), $pp_lang);
         if (!empty($term->getDescription())) {
@@ -722,7 +676,7 @@ class PPTaxonomyManager {
         $this->addHashData($term, $uri_lang, $hash, $info['start_time']);
       }
     }
-    */
+
     $context['results']['translation_processed']++;
   }
 
