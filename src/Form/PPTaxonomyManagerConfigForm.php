@@ -51,8 +51,8 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
     $project_title = '<invalid project selected>';
     $pp_server_projects = $connection->getApi('PPT')->getProjects();
     foreach ($pp_server_projects as $pp_server_project) {
-      if ($pp_server_project->id == $entity->getProjectId()) {
-        $project_title = $pp_server_project->title;
+      if ($pp_server_project['id'] == $entity->getProjectId()) {
+        $project_title = $pp_server_project['title'];
       }
     }
 

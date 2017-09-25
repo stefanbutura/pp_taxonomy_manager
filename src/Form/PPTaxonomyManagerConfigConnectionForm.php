@@ -198,7 +198,7 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
     if (!$is_new) {
       $projects = $connection->getApi('PPT')->getProjects();
       foreach ($projects as $project) {
-        $project_options[$project->id] = $project->title;
+        $project_options[$project['id']] = $project['title'];
       }
     }
     // configuration set admin page.
@@ -373,7 +373,7 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
       ));
       $projects = $connection->getApi('PPT')->getProjects();
       foreach ($projects as $project) {
-        $project_options[$project->id] = $project->title;
+        $project_options[$project['id']] = $project['title'];
       }
     }
 

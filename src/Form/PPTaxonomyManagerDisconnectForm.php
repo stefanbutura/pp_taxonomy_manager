@@ -43,10 +43,11 @@ class PPTaxonomyManagerDisconnectForm extends FormBase {
 
     // Get the project.
     $connection = $config->getConnection();
-    $projects = $connection->getApi('PPT')->getProjects();
+    $potential_projects = $connection->getApi('PPT')->getProjects();
     $project = NULL;
-    foreach ($projects as $project) {
-      if ($project->id == $config->getProjectId()) {
+    foreach ($potential_projects as $potential_project) {
+      if ($potential_project['id'] == $config->getProjectId()) {
+        $project = $potential_project;
         break;
       }
     }
