@@ -34,6 +34,8 @@ class PPTaxonomyManagerImportForm extends FormBase {
    *   The configuration of the PoolParty Taxonomy manager.
    */
   public function buildForm(array $form, FormStateInterface $form_state, $config = NULL) {
+    /*$vocab = Vocabulary::load("german_vocabulary");
+    var_dump($vocab); exit;*/
     // Check if concept scheme URI is given and is a url.
     $scheme_uri = $_GET['uri'];
     if (!UrlHelper::isValid($scheme_uri, TRUE)) {
@@ -107,7 +109,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $available_languages = \Drupal::languageManager()->getLanguages();
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
     $project_language_options = array();
-    foreach ($project->availableLanguages as $project_language) {
+    foreach ($project['availableLanguages'] as $project_language) {
       $project_language_options[$project_language] = $project_language;
     }
     $form['languages'] = array(
@@ -124,9 +126,8 @@ class PPTaxonomyManagerImportForm extends FormBase {
           '#description' => t('Select the PoolParty project language'),
           '#options' => $project_language_options,
           '#empty_option' => '',
-          '#default_value' => ($lang->getId() == $default_language ? $project->defaultLanguage : ''),
+          '#default_value' => (isset($project_language_options[$lang->getId()]) ? $project_language_options[$lang->getId()] : ''),
           '#required' => ($lang->getId() == $default_language ? TRUE : FALSE),
-          '#disabled' => ($lang->getId() == $default_language ? TRUE : FALSE),
         );
       }
     }
@@ -179,6 +180,9 @@ class PPTaxonomyManagerImportForm extends FormBase {
     if (count($values['languages']) != count($languages)) {
       $form_state->setErrorByName('languages', t('The selected languages must be different.'));
     }
+    if (count(array_filter($languages)) > 1 && !\Drupal::moduleHandler()->moduleExists('content_translation')) {
+      $form_state->setErrorByName('languages', t('Module "Content Translation" needs to be enabled for multilingual operations.'));
+    }
 
     $concepts_per_request = $values['concepts_per_request'];
     if (empty($concepts_per_request) || !ctype_digit($concepts_per_request) || (int) $concepts_per_request == 0 || (int) $concepts_per_request > 100) {
@@ -202,6 +206,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
 
     // Create the new taxonomy .
     $taxonomy = $manager->createTaxonomy($concept_scheme, $values['taxonomy_name']);
+    $manager->enableTranslation($taxonomy, $languages);
 
     // Add URI and alt. labels fields (if not exists) to the taxonomy.
     $manager->adaptTaxonomyFields($taxonomy);

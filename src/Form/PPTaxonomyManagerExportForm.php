@@ -71,7 +71,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
     $count = count($tree);
 
     $description = t('A new concept scheme will be created in the project %project and %count terms will be inserted.', array(
-      '%project' => $project->title,
+      '%project' => $project['title'],
       '%count' => $count,
     ));
     $description .= '<br />' . t('This can take a while. Please wait until the export is finished.');
@@ -95,7 +95,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
 
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
     $project_language_options = array();
-    foreach ($project->availableLanguages as $project_language) {
+    foreach ($project['availableLanguages'] as $project_language) {
       $project_language_options[$project_language] = $project_language;
     }
     $form['languages'] = array(
@@ -113,7 +113,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
           '#description' => t('Select the PoolParty project language'),
           '#options' => $project_language_options,
           '#empty_option' => '',
-          '#default_value' => ($lang->getId() == $default_language ? $project->defaultLanguage : ''),
+          '#default_value' => ($lang->getId() == $default_language ? $project['defaultLanguage'] : ''),
           '#required' => ($lang->getId() == $default_language ? TRUE : FALSE),
           '#disabled' => ($lang->getId() == $default_language ? TRUE : FALSE),
         );
@@ -155,6 +155,10 @@ class PPTaxonomyManagerExportForm extends FormBase {
     $languages = array_unique($values['languages']);
     if (count($values['languages']) != count($languages)) {
       $form_state->setErrorByName('languages', t('The selected languages must be different.'));
+    }
+
+    if (count(array_filter($languages)) > 1 && !\Drupal::moduleHandler()->moduleExists('content_translation')) {
+      $form_state->setErrorByName('languages', t('Module "Content Translation" needs to be enabled for multilingual operations.'));
     }
 
     $concepts_per_request = $values['terms_per_request'];

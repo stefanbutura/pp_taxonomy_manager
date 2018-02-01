@@ -147,6 +147,10 @@ class PPTaxonomyManagerSyncForm extends FormBase {
       $form_state->setErrorByName('languages', t('The selected languages must be different.'));
     }
 
+    if (count(array_filter($languages)) > 1 && !\Drupal::moduleHandler()->moduleExists('content_translation')) {
+      $form_state->setErrorByName('languages', t('Module "Content Translation" needs to be enabled for multilingual operations.'));
+    }
+
     $concepts_per_request = $values['concepts_per_request'];
     if (empty($concepts_per_request) || !ctype_digit($concepts_per_request) || (int) $concepts_per_request == 0 || (int) $concepts_per_request > 100) {
       $form_state->setErrorByName('concepts_per_request', t('Only values in the range of 1 - 100 are allowed for field "PoolParty concepts per request"'));

@@ -247,6 +247,36 @@ class PPTaxonomyManager {
   }
 
   /**
+   * Set the correct translation mode for the Drupal taxonomy.
+   *
+   * @param Vocabulary $vocabulary
+   *   A Drupal taxonomy.
+   * @param array $languages
+   *   An array of languages:
+   *    key = Drupal language
+   *    value = PoolParty language.
+   *
+   * @return boolean
+   *   TRUE if the translation mode had to be changed, FALSE if not.
+   */
+  public function enableTranslation($vocabulary, $languages) {
+    if (\Drupal::moduleHandler()->moduleExists('content_translation')) {
+      $language_count = count($languages);
+
+      // Make the taxonomy translatable if the translation module for taxonomies
+      // is installed and more than one language is selected.
+      if ($language_count > 1 && !\Drupal::service('content_translation.manager')->isEnabled('taxonomy_term', $vocabulary->id())) {
+        \Drupal::service('content_translation.manager')->setEnabled('taxonomy_term', $vocabulary->id(), TRUE);
+        \Drupal::entityTypeManager()->clearCachedDefinitions();
+        \Drupal::service('router.builder')->setRebuildNeeded();
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
    * Adds additional fields to a specific taxonomy term if not exists.
    *
    * @param Vocabulary $vocabulary
@@ -376,6 +406,9 @@ class PPTaxonomyManager {
       'total' => $count,
       'start_time' => $start_time,
     );
+
+    // Enable the translation for the taxonomy if required.
+    $this->enableTranslation($vocabulary, $languages);
 
     // Set the export operations.
     for ($i = 0; $i < $count; $i += $terms_per_request) {
@@ -584,7 +617,7 @@ class PPTaxonomyManager {
 
         $uri_lang = $this->getUri($concept);
         $hash = $this->hash($concept);
-        $this->addHashData($term, $uri_lang, $hash, $info['start_time']);
+        $this->addHashData($term, $data['ppLang'], $uri_lang, $hash, $info['start_time']);
 
         $exported_terms[$term->id()]['hash'] = TRUE;
         $context['results']['hash_update_processed']++;
@@ -662,10 +695,6 @@ class PPTaxonomyManager {
           }
         }
 
-        // Update term with the new URI.
-        $term->get('field_uri')->setValue($uri);
-        $term->save();
-
         // Add hash data to the database.
         $concept = $ppt->getConcept($project_id, $uri, $this->skosProperties(), $pp_lang);
         $concept->drupalLang = $drupal_lang;
@@ -673,7 +702,7 @@ class PPTaxonomyManager {
 
         $uri_lang = $this->getUri($concept);
         $hash = $this->hash($concept);
-        $this->addHashData($term, $uri_lang, $hash, $info['start_time']);
+        $this->addHashData($term, $pp_lang, $uri_lang, $hash, $info['start_time']);
       }
     }
 
@@ -713,46 +742,62 @@ class PPTaxonomyManager {
 
     $top_concept_uris = array();
     $concepts = array();
+    $count = 0;
     foreach ($languages as $drupal_lang => $pp_lang) {
+      $concepts[$pp_lang] = array();
       $top_concepts = $ppt->getTopConcepts($this->config->getProjectId(), $scheme_uri, $skos_properties, $pp_lang);
       foreach ($top_concepts as $top_concept) {
-        $top_concept_uris[] = $top_concept->uri . '@' . $pp_lang;
+        $top_concept_uris[] = $top_concept['uri'] . '@' . $pp_lang;
       }
       $tree = $ppt->getSubTree($this->config->getProjectId(), $scheme_uri, $skos_properties, $pp_lang);
       $tree_list = $this->tree2list($tree, $drupal_lang, $pp_lang);
-      $concepts = array_merge($concepts, $tree_list);
+      $concepts[$pp_lang] = array_merge($concepts[$pp_lang], $tree_list);
+      $count += count($tree_list);
     }
 
     // Set additional data.
-    $count = count($concepts);
     $info = array(
       'total' => $count,
       'start_time' => $start_time,
       'top_concept_uris' => $top_concept_uris,
     );
 
+    // Enable the translation for the taxonomy if required.
+    $this->enableTranslation($vocabulary, $languages);
+
     // Set the update operations.
-    for ($i = 0; $i < $count; $i += $concepts_per_request) {
-      $concept_list = array_slice($concepts, $i, $concepts_per_request);
-      $batch['operations'][] = array(
-        array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'updateTerms'),
-        array(
-          $this,
-          $concept_list,
-          $vocabulary->id(),
-          $vocabulary->id(),
-          $info,
-        ),
-      );
+    foreach ($concepts as $pp_lang => $lang_concepts) {
+      for ($i = 0; $i < count($lang_concepts); $i += $concepts_per_request) {
+        $concept_list = array_slice($lang_concepts, $i, $concepts_per_request);
+        $batch['operations'][] = array(
+          array(
+            '\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches',
+            'updateTerms'
+          ),
+          array(
+            $this,
+            $concept_list,
+            $pp_lang,
+            $vocabulary->id(),
+            $vocabulary->id(),
+            $info,
+          ),
+        );
+      }
     }
 
     // Set the update parents operations.
-    for ($i = 0; $i < $count; $i += $concepts_per_request) {
-      $concept_list = array_slice($concepts, $i, $concepts_per_request);
-      $batch['operations'][] = array(
-        array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'updateTermParents'),
-        array($this, $concept_list, $info),
-      );
+    foreach ($concepts as $pp_lang => $lang_concepts) {
+      for ($i = 0; $i < count($lang_concepts); $i += $concepts_per_request) {
+        $concept_list = array_slice($lang_concepts, $i, $concepts_per_request);
+        $batch['operations'][] = array(
+          array(
+            '\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches',
+            'updateTermParents'
+          ),
+          array($this, $concept_list, $info),
+        );
+      }
     }
 
     // Set the delete operations for the removed concepts.
@@ -776,6 +821,8 @@ class PPTaxonomyManager {
    *
    * @param array $concepts
    *   The concepts that are to be updated.
+   * @param string $pp_lang
+   *   The PoolParty language of the concepts.
    * @param string $vid
    *   The taxonomy ID where the terms should be updated.
    * @param string $machine_name
@@ -785,14 +832,16 @@ class PPTaxonomyManager {
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public function updateBatch($concepts, $vid, $machine_name, $info, &$context) {
+  public function updateBatch($concepts, $pp_lang, $vid, $machine_name, $info, &$context) {
     $uris = array_keys($concepts);
     $processed_uris = array();
+    $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
 
     // Get mapping data for every concept.
     $term_query = \Drupal::database()->select('pp_taxonomy_manager_terms', 't');
-    $term_query->fields('t', array('tid', 'uri', 'hash'));
+    $term_query->fields('t', array('tid', 'language', 'uri', 'hash'));
     $term_query->condition('t.tmid', $this->config->id());
+    $term_query->condition('t.language', $pp_lang);
     $term_query->condition('t.vid', $vid);
     $term_query->condition('t.uri', $uris, 'IN');
     $result = $term_query->execute();
@@ -803,13 +852,24 @@ class PPTaxonomyManager {
       $hash = $this->hash($concept);
       if ($record->hash != $hash) {
         $term = Term::load($record->tid);
-        $term = $this->mapTaxonomyTermDetails($term, $concept);
+        // Normal update.
+        if ($concept['drupalLang'] == $default_language) {
+          $term = $this->mapTaxonomyTermDetails($term, $concept);
+        }
+        // Translation update.
+        else {
+          // Get the translated version of the taxonomy term.
+          $translation = $term->getTranslation($concept['drupalLang']);
+          $mapped_translation = $this->mapTaxonomyTermDetails($translation, $concept);
+          $term->addTranslation($concept['drupalLang'], $mapped_translation->toArray());
+        }
         $term->save();
-        $this->updateHashData($term, $hash, $info['start_time']);
+        $this->updateHashData($term, $pp_lang, $hash, $info['start_time']);
         $context['results']['updated_terms'][$record->uri] = $record->tid;
-        \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term updated: %name (TID = %tid)', array(
+        \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term updated: %name (TID = %tid) (%lang)', array(
           '%name' => $term->getName(),
           '%tid' => $term->id(),
+          '%lang' => $concept['drupalLang'],
         ));
       }
       else {
@@ -830,13 +890,7 @@ class PPTaxonomyManager {
 
         $query = \Drupal::entityQuery('taxonomy_term');
         $query->condition('vid', $machine_name);
-        $query->condition('field_uri', $concept->uri);
-
-        // @todo: multilingualism?
-        // Add language condition if multilingual for taxonomies is enabled.
-        /*if (module_exists('i18n_taxonomy')) {
-          $query->condition('t.language', $concept->drupalLang);
-        }*/
+        $query->condition('field_uri', $concept['uri']);
 
         $result = $query->execute();
         $tid = reset($result);
@@ -848,37 +902,29 @@ class PPTaxonomyManager {
           $term = Term::create(array('vid' => $vid));
         }
 
-        // Map data and save the term.
-        $term = $this->mapTaxonomyTermDetails($term, $concept);
-        $term->save();
-
-        // @todo: add multilingualism.
-        // Add the term to a translation set.
-        /*if (module_exists('i18n_taxonomy')) {
-          $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
-          if ($term->language == $default_language) {
-            $translation_set = ($term->i18n_tsid) ? i18n_translation_set_load($term->i18n_tsid) : i18n_translation_set_create('taxonomy_term', $machine_name);
+        // Normal update.
+        if ($concept['drupalLang'] == $default_language) {
+          $term = $this->mapTaxonomyTermDetails($term, $concept);
+        }
+        // Translation update.
+        else {
+          // Get the translated version of the taxonomy term.
+          if ($term->hasTranslation($concept['drupalLang'])) {
+            $translation = $term->getTranslation($concept['drupalLang']);
           }
           else {
-            // Get the translation set ID from the default term.
-            $query = db_select('taxonomy_term_data', 't')
-              ->fields('t', array('i18n_tsid'))
-              ->condition('t.language', $default_language)
-              ->condition('u.bundle', $machine_name)
-              ->condition('u.field_uri_value', $concept->uri);
-            $query->join('field_data_field_uri', 'u', 't.tid = u.entity_id');
-            $i18n_tsid = $query->execute()
-              ->fetchField();
-            $translation_set = ($i18n_tsid) ? i18n_translation_set_load($i18n_tsid) : i18n_translation_set_create('taxonomy_term', $machine_name);
+            $translation = clone $term;
           }
-          $translation_set->add_item($term, $term->language);
-          $translation_set->save();
-        }*/
+          $mapped_translation = $this->mapTaxonomyTermDetails($translation, $concept);
+          $term->addTranslation($concept['drupalLang'], $mapped_translation->toArray());
+        }
+
+        $term->save();
 
         // Add the hash to the hash table.
         $uri = $this->getUri($concept);
         $hash = $this->hash($concept);
-        $this->addHashData($term, $uri, $hash, $info['start_time']);
+        $this->addHashData($term, $pp_lang, $uri, $hash, $info['start_time']);
         $context['results']['created_terms'][$uri] = $term->id();
         $context['results']['processed']++;
         \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term created: %name (TID = %tid)', array(
@@ -919,12 +965,11 @@ class PPTaxonomyManager {
         $parents[] = 0;
       }
 
-      if (isset($concept->broaders) && !empty($concept->broaders)) {
-        foreach ($concept->broaders as $broader) {
-          $broader_uri = $broader . '@' . $concept->ppLang;
+      if (isset($concept['broaders']) && !empty($concept['broaders'])) {
+        foreach ($concept['broaders'] as $broader) {
+          $broader_uri = $broader . '@' . $concept['ppLang'];
           if (isset($all_terms[$broader_uri])) {
             $parents[] = $all_terms[$broader_uri];
-
           }
         }
       }
@@ -1087,22 +1132,20 @@ class PPTaxonomyManager {
    *   The mapped taxonomy term.
    */
   protected function mapTaxonomyTermDetails($term, $concept) {
-    $term->setName($concept->prefLabel);
-    // @todo: Do terms still have languages?
-    //$term->language = $concept->drupalLang;
-    $term->get('field_uri')->setValue($concept->uri);
-    if (isset($concept->definitions)) {
-      $term->setDescription(implode(' ', $concept->definitions));
+    $term->setName($concept['prefLabel']);
+    $term->get('field_uri')->setValue($concept['uri']);
+    if (isset($concept['definitions'])) {
+      $term->setDescription(implode(' ', $concept['definitions']));
     }
-    if (isset($concept->altLabels)) {
-      $term->get('field_alt_labels')->setValue(implode(',', $concept->altLabels));
+    if (isset($concept['altLabels'])) {
+      $term->get('field_alt_labels')->setValue(implode(',', $concept['altLabels']));
     }
-    if (isset($concept->hiddenLabels)) {
-      $term->get('field_hidden_labels')->setValue(implode(',', $concept->hiddenLabels));
+    if (isset($concept['hiddenLabels'])) {
+      $term->get('field_hidden_labels')->setValue(implode(',', $concept['hiddenLabels']));
     }
 
     // Add data for custom fields.
-    if (isset($concept->properties)) {
+    if (isset($concept['properties'])) {
       $fields = self::taxonomyFields();
       foreach ($fields as $field_id => $field_schema) {
         if (!in_array($field_id, array(
@@ -1110,9 +1153,9 @@ class PPTaxonomyManager {
             'field_alt_labels',
             'field_hidden_labels',
             'field_exact_match',
-          )) && isset($concept->properties->{$field_schema['property']})
+          )) && isset($concept['properties'][$field_schema['property']])
         ) {
-          $term->get($field_id)->setValue($concept->properties->{$field_schema['property']});
+          $term->get($field_id)->setValue($concept['properties'][$field_schema['property']]);
         }
       }
     }
@@ -1138,19 +1181,19 @@ class PPTaxonomyManager {
   protected function tree2list(array $tree, $drupal_lang, $pp_lang, $depth = 0) {
     $concepts = array();
     foreach ($tree as $subtree) {
-      if (is_object($subtree) && !empty($subtree->concept)) {
+      if (is_array($subtree) && !empty($subtree['concept'])) {
         // If a concept is in the top level but is not a top concept, then
         // remove its broaders (it's important for other languages if is not
         // translated consistently).
         if ($depth == 0) {
-          unset($subtree->concept->broaders);
+          unset($subtree['concept']['broaders']);
         }
-        $subtree->concept->drupalLang = $drupal_lang;
-        $subtree->concept->ppLang = $pp_lang;
-        $concept_uri = $this->getUri($subtree->concept);
-        $concepts[$concept_uri] = $subtree->concept;
-        if (!empty($subtree->narrowers)) {
-          $tree_list = $this->tree2list($subtree->narrowers, $drupal_lang, $pp_lang, ($depth + 1));
+        $subtree['concept']['drupalLang'] = $drupal_lang;
+        $subtree['concept']['ppLang'] = $pp_lang;
+        $concept_uri = $this->getUri($subtree['concept']);
+        $concepts[$concept_uri] = $subtree['concept'];
+        if (!empty($subtree['narrowers'])) {
+          $tree_list = $this->tree2list($subtree['narrowers'], $drupal_lang, $pp_lang, ($depth + 1));
           $concepts = array_merge($concepts, $tree_list);
         }
       }
@@ -1163,6 +1206,8 @@ class PPTaxonomyManager {
    *
    * @param Term $term
    *   A Drupal taxonomy term.
+   * @param string $pp_lang
+   *   The PoolParty language used.
    * @param string $uri
    *   The URI with language prefix of a concept.
    * @param string $hash
@@ -1170,10 +1215,11 @@ class PPTaxonomyManager {
    * @param int $start_time
    *   The start time of the batch.
    */
-  protected function addHashData($term, $uri, $hash, $start_time) {
+  protected function addHashData($term, $pp_lang, $uri, $hash, $start_time) {
     $insert_query = \Drupal::database()->insert('pp_taxonomy_manager_terms');
     $insert_query->fields(array(
       'tid' => $term->id(),
+      'language' => $pp_lang,
       'vid' => $term->getVocabularyId(),
       'tmid' => $this->config->id(),
       'synced' => $start_time,
@@ -1188,12 +1234,14 @@ class PPTaxonomyManager {
    *
    * @param Term $term
    *   The taxonomy term.
+   * @param string $pp_lang
+   *   The PoolParty language used.
    * @param string $hash
    *   The new hash data.
    * @param int $start_time
    *   The synchonization start time.
    */
-  protected function updateHashData($term, $hash, $start_time) {
+  protected function updateHashData($term, $pp_lang, $hash, $start_time) {
     $update_query = \Drupal::database()->update('pp_taxonomy_manager_terms');
     $update_query->fields(array(
       'synced' => $start_time,
@@ -1201,6 +1249,7 @@ class PPTaxonomyManager {
     ));
     $update_query->condition('vid', $term->getVocabularyId());
     $update_query->condition('tid', $term->id());
+    $update_query->condition('language', $pp_lang);
     $update_query->execute();
   }
 
@@ -1247,7 +1296,7 @@ class PPTaxonomyManager {
    *   The uri with the language (e.g., http://a.concept.uri/1234@en).
    */
   protected function getUri($concept) {
-    return $concept->uri . '@' . $concept->ppLang;
+    return $concept['uri'] . '@' . $concept['ppLang'];
   }
 
   /**
@@ -1355,7 +1404,7 @@ class PPTaxonomyManager {
    */
   public static function createMachineName($name) {
     $name = strtolower($name);
-    return preg_replace(array('@[^a-z0-9_]+@', '@_+@'), '_', $name);
+    return substr(preg_replace(array('@[^a-z0-9_]+@', '@_+@'), '_', $name), 0, 32);
   }
 
   /**

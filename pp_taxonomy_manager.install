@@ -67,6 +67,12 @@ function pp_taxonomy_manager_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
+      'language' => array(
+        'description' => 'The PP language of the entry.',
+        'type' => 'varchar',
+        'length' => 20,
+        'not null' => TRUE,
+      ),
       'vid' => array(
         'description' => 'The ID of the vocabulary where the term comes from.',
         'type' => 'varchar',
@@ -97,7 +103,7 @@ function pp_taxonomy_manager_schema() {
         'length' => 32,
       ),
     ),
-    'primary key' => array('tid'),
+    'primary key' => array('tid', 'language'),
     'indexes' => array(
       'tmid_vid_uri' => array('tmid', 'vid', array('uri', 128)),
     ),

@@ -96,7 +96,7 @@ class PPTaxonomyManagerBatches {
   /**
    * Batch process function for exporting the translations of the taxonomy terms.
    *
-   * @param object $manager
+   * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
    * @param Term[] $terms
    *   The taxonomy terms that are to be exported.
@@ -123,10 +123,12 @@ class PPTaxonomyManagerBatches {
   /**
    * Batch process function for updating taxonomy terms from a PoolParty server.
    *
-   * @param object $manager
+   * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
    * @param array $concepts
    *   The concepts that are to be updated.
+   * @param string $pp_lang
+   *   The PoolParty language of the concepts.
    * @param int $vid
    *   The taxonomy ID where the terms should be updated.
    * @param string $machine_name
@@ -136,7 +138,7 @@ class PPTaxonomyManagerBatches {
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public static function updateTerms($manager, array $concepts, $vid, $machine_name, array $info, array &$context) {
+  public static function updateTerms($manager, array $concepts, $pp_lang, $vid, $machine_name, array $info, array &$context) {
     if (!isset($context['results']['processed'])) {
       $context['results']['processed'] = 0;
       $context['results']['processed_parents'] = 0;
@@ -146,7 +148,7 @@ class PPTaxonomyManagerBatches {
       $context['results']['deleted_terms'] = array();
     }
 
-    $manager->updateBatch($concepts, $vid, $machine_name, $info, $context);
+    $manager->updateBatch($concepts, $pp_lang, $vid, $machine_name, $info, $context);
     $remaining_time = $manager->calculateRemainingTime($info['start_time'], $context['results']['processed'], $info['total']);
 
     // Show the remaining time as a batch message.
@@ -186,7 +188,7 @@ class PPTaxonomyManagerBatches {
   /**
    * Batch process function for updating taxonomy terms from a PoolParty server.
    *
-   * @param object $manager
+   * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
    * @param array $concepts
    *   The concepts that are to be updated.
