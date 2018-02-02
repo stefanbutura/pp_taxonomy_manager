@@ -11,10 +11,11 @@ use Drupal\Component\Render\FormattableMarkup;
 use Drupal\Core\Entity\EntityForm;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Link;
+use Drupal\Core\StringTranslation\PluralTranslatableMarkup;
 use Drupal\Core\Url;
-use Drupal\node\Entity\NodeType;
 use Drupal\powertagging\Entity\PowerTaggingConfig;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
+use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
 use Drupal\semantic_connector\Entity\SemanticConnectorPPServerConnection;
 use Drupal\taxonomy\Entity\Vocabulary;
 
@@ -48,11 +49,17 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
     /** @var SemanticConnectorPPServerConnection $connection */
     $connection = $entity->getConnection();
     // Get the project title of the currently configured project.
-    $project_title = '<invalid project selected>';
-    $pp_server_projects = $connection->getApi('PPT')->getProjects();
-    foreach ($pp_server_projects as $pp_server_project) {
-      if ($pp_server_project['id'] == $entity->getProjectId()) {
-        $project_title = $pp_server_project['title'];
+    $project_title = '';
+    if ($configuration['root_level'] != 'project') {
+      $project_title = '<invalid project selected>';
+      $pp_server_projects = $entity->getConnection()
+        ->getApi('PPT')
+        ->getProjects();
+      foreach ($pp_server_projects as $pp_server_project) {
+        if ($pp_server_project['id'] == $entity->getProjectId()) {
+          $project_title = $pp_server_project['title'];
+          break;
+        }
       }
     }
 
@@ -72,14 +79,14 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
       }
     }
     $connection_markup .= '<p id="pp-taxonomy-manager-connection-info">' . t('Connected PoolParty server') . ': <b>' . $connection->getTitle() . ' (' . $connection->getUrl() . ')</b><br />'
-      . t('Selected project') . ': <b>' . $project_title . '</b><br />'
+      . t('Selected taxonomy root level') . ': <b>' . ($configuration['root_level'] == 'project' ? t('Project') : t('Concept Scheme')) . '</b><br />'
+      . (!empty($project_title) ? t('Selected project') . ': <b>' . $project_title . '</b><br />' : '')
       . Link::fromTextAndUrl(t('Change the connected PoolParty server or project'), Url::fromRoute('entity.pp_taxonomy_manager.edit_form', array('pp_taxonomy_manager' => $entity->id())))->toString() . '</p>';
     $form['pp_connection_markup'] = array(
       '#type' => 'markup',
       '#markup' => $connection_markup,
     );
 
-    $connected = array();
     // Get all available Drupal taxonomies.
     $taxonomies = Vocabulary::loadMultiple();
 
@@ -102,25 +109,101 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
     // Create a table with all existing and possible connections between Drupal
     // taxonomies and PoolParty concepts schemes for the selected project.
 
-    // Create the table rows for all available concept schemes not yet connected.
-    $concept_schemes = $entity->getConnection()
-      ->getApi('PPT')
-      ->getConceptSchemes($entity->getProjectId());
+    // Create the table rows for all available concept schemes / projects not yet connected.
+    $connected = array();
+    $powertagging_ids = array();
     $rows = array();
+    $connected_rows = array();
+    if ($configuration['root_level'] == 'project') {
+      $projects = $entity->getConnection()
+        ->getApi('PPT')
+        ->getProjects();
 
-    foreach ($concept_schemes as $scheme) {
-      $operations = array();
-      if (in_array($scheme['uri'], $configuration['taxonomies'])) {
-        $connected[$scheme['uri']] = $scheme;
-        continue;
+      $used_projects = PPTaxonomyManager::getUsedProjects($entity->getConnection()->getUrl(), array($entity->id()));
+      foreach ($projects as $project) {
+        // The project is not yet used by a different configuration.
+        if (!isset($used_projects[$project['id']])) {
+          $operations = array();
+          if (in_array($project['id'], $configuration['taxonomies'])) {
+            $connected[$project['id']] = $project;
+            continue;
+          }
+
+          // Check if the project is in use by a PowerTagging configuration.
+          $powertagging_id = 0;
+          foreach ($powertaggings as $powertagging_config) {
+            if ($entity->getConnection()->getUrl() == $powertagging_config->getConnection()->getUrl() && $project['id'] == $powertagging_config->getProjectId()) {
+              $powertagging_id = $powertagging_config->powertagging_id;
+              break;
+            }
+          }
+
+          if ($powertagging_id == 0) {
+            $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $project['id']))))->toString();
+            $rows[] = array(
+              new FormattableMarkup('<div class="semantic-connector-italic">' . t('not yet connected') . '</div>', array()),
+              new FormattableMarkup(implode(' | ', $operations), array()),
+              Link::fromTextAndUrl($project['title'], Url::fromUri($project['uri'], array('attributes' => array('title' => (isset($project['description']) && !empty($project['description'])) ? $project['description'] : NULL)))),
+            );
+          }
+          else {
+            $powertagging_ids[$project['id']] = $powertagging_id;
+            $powertagging_config = $powertaggings[$powertagging_id];
+            $powertagging_config_settings = $powertagging_config->getConfig();
+            /** @var Vocabulary $taxonomy */
+            $taxonomy = $taxonomies[$powertagging_config_settings['projects'][$powertagging_config->getProjectId()]['taxonomy_id']];
+            $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Make complete taxonomy'), Url::fromRoute('entity.pp_taxonomy_manager.powertagging_taxonomy_update', array('config' => $entity->id(), 'powertagging_config' => $powertagging_id)))->toString();
+            $rows[] = array(
+              Link::fromTextAndUrl($taxonomy->label(), Url::fromRoute('entity.taxonomy_vocabulary.edit_form', array('taxonomy_vocabulary' => $taxonomy->id()), array('attributes' => array('title' => $taxonomy->getDescription()))))->toString() . t(' (created by PowerTagging configuration "%powertaggingtitle")', array('%powertaggingtitle' => $powertagging_config->getTitle())),
+              new FormattableMarkup(implode(' | ', $operations), array()),
+              Link::fromTextAndUrl($project['title'], Url::fromUri($project['uri'], array('attributes' => array('title' => (isset($project['description']) && !empty($project['description'])) ? $project['description'] : NULL)))),
+            );
+          }
+        }
+        // The project is already used by a different configuration.
+        else {
+          $rows[] = array(
+            '-',
+            new FormattableMarkup('<div class="semantic-connector-italic">' . t('Already in use by PoolParty Taxonomy Manager configuration "%config_title"', array('%config_title' => $used_projects[$project['id']])) . '</div>', array()),
+            Link::fromTextAndUrl($project['title'], Url::fromUri($project['uri'], array('attributes' => array('title' => (isset($project['description']) && !empty($project['description'])) ? $project['description'] : NULL)))),
+          );
+        }
       }
+    }
+    // Load the Concept Schemes.
+    else {
+      $concept_schemes = $entity->getConnection()
+        ->getApi('PPT')
+        ->getConceptSchemes($entity->getProjectId());
 
-      $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $scheme['uri']))))->toString();
-      $rows[] = array(
-        new FormattableMarkup('<div class="semantic-connector-italic">' . t('not yet connected') . '</div>', array()),
-        new FormattableMarkup(implode(' | ', $operations), array()),
-        Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array('attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL))))),
-      );
+      foreach ($concept_schemes as $scheme) {
+        $operations = array();
+        if (in_array($scheme['uri'], $configuration['taxonomies'])) {
+          $connected[$scheme['uri']] = $scheme;
+          continue;
+        }
+
+        $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $scheme['uri']))))->toString();
+        $rows[] = array(
+          new FormattableMarkup('<div class="semantic-connector-italic">' . t('not yet connected') . '</div>', array()),
+          new FormattableMarkup(implode(' | ', $operations), array()),
+          Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array('attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL))))),
+        );
+      }
+    }
+
+    // Check which taxonomies are already used by other PoolParty Taxonomy
+    // Manager configurations.
+    $used_taxonomies = array();
+    $taxonomy_manager_configs = PPTaxonomyManagerConfig::loadMultiple();
+    /** @var PPTaxonomyManagerConfig $taxonomy_manager_config */
+    foreach ($taxonomy_manager_configs as $taxonomy_manager_config) {
+      if ($taxonomy_manager_config->id() != $entity->id()) {
+        $taxonomy_manager_config_settings = $taxonomy_manager_config->getConfig();
+        foreach (array_keys($taxonomy_manager_config_settings['taxonomies']) as $vid) {
+          $used_taxonomies[$vid] = $taxonomy_manager_config->getTitle();
+        }
+      }
     }
 
     // Create the table rows for all connected and disconnected Drupal taxonomies.
@@ -129,29 +212,50 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
       $operations = array();
       // Show only taxonomies that are not already connected with a
       // PoolParty project via PowerTagging.
-      if (!isset($taxonomy_powertagging[$taxonomy->id()])) {
+      if (!isset($used_taxonomies[$taxonomy->id()])) {
         if (isset($configuration['taxonomies'][$taxonomy->id()])) {
+          $last_log = $entity->getLastLog($taxonomy->id());
+          $sync_required = FALSE;
+
           // Create rows from connected taxonomies.
           if (isset($connected[$configuration['taxonomies'][$taxonomy->id()]])) {
-            $scheme = $connected[$configuration['taxonomies'][$taxonomy->id()]];
+            $root_object = $connected[$configuration['taxonomies'][$taxonomy->id()]];
             $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Sync from PoolParty'), Url::fromRoute('entity.pp_taxonomy_manager.sync' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id())))->toString();
             $operations[] = Link::fromTextAndUrl(t('Disconnect from PoolParty'), Url::fromRoute('entity.pp_taxonomy_manager.disconnect' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id())))->toString() . ' &rArr;';
-            $concept_scheme = Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array(
+            $concept_scheme = Link::fromTextAndUrl($root_object['title'], Url::fromUri($root_object['uri'], array(
               'absolut' => TRUE,
-              'attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL)),
+              'attributes' => array('title' => ((isset($root_object['descriptions']) && !empty($root_object['descriptions'])) ? $root_object['descriptions'][0] : NULL)),
             )));
+
+            // Check if there were any PoolPart side changes.
+            $changes = PPTaxonomyManager::checkPPChanges($entity, ($configuration['root_level'] == 'project' ? $root_object['id'] : $entity->getProjectId()), $taxonomy->id());
+            $sync_required = !empty($changes);
           }
           else {
+            $root_level = ($configuration['root_level'] == 'project') ? 'project' : 'concept scheme';
             $operations[] = Link::fromTextAndUrl(t('Disconnect from PoolParty'), Url::fromRoute('entity.pp_taxonomy_manager.disconnect' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id())))->toString() . ' &rArr;';
-            $concept_scheme = t('The concept scheme could not be found in PoolParty.<br />Make sure to delete the connection if the concept scheme was deleted on purpose.');
+            $concept_scheme = t('The %root_level could not be found in PoolParty.<br />Make sure to delete the connection if the concept scheme was deleted on purpose.', array('%root_level' => $root_level));
           }
-          $rows[] = array(
-            Link::fromTextAndUrl($taxonomy->label(), Url::fromRoute('entity.taxonomy_vocabulary.edit_form', array('taxonomy_vocabulary' => $taxonomy->id()), array('attributes' => array('title' => $taxonomy->getDescription())))),
+          $taxonomy_link = Link::fromTextAndUrl($taxonomy->label(), Url::fromRoute('entity.taxonomy_vocabulary.edit_form', array('taxonomy_vocabulary' => $taxonomy->id()), array('attributes' => array('title' => $taxonomy->getDescription()))))->toString();
+          if (isset($taxonomy_powertagging[$taxonomy->id()])) {
+            $powertagging_config_labels = array();
+            foreach ($taxonomy_powertagging[$taxonomy->id()] as $powertagging_id) {
+              $powertagging_config = $powertaggings[$powertagging_id];
+              $powertagging_config_labels[] = $powertagging_config->getTitle();
+            }
+            $config_plural = new PluralTranslatableMarkup(count($powertagging_config_labels), 'PowerTagging configuration', 'PowerTagging configurations');
+            $taxonomy_link .= t(' (used by @configpart "%powertaggingtitle")', array('@configpart' => $config_plural, '%powertaggingtitle' => implode('", "', $powertagging_config_labels)));
+          }
+
+          $connected_rows[] = array(
+            $taxonomy_link,
             new FormattableMarkup(implode(' | ', $operations), array()),
             $concept_scheme,
+            (($last_log !== FALSE) ? t('%sorttimestampstarted: @starttime%brfinished: @endtime%brby: %username', array('@starttime' => \Drupal::service('date.formatter')->format($last_log['start_time'], 'short'), '@endtime' => \Drupal::service('date.formatter')->format($last_log['end_time'], 'short'), '%username' => new FormattableMarkup(Link::fromTextAndUrl($last_log['name'], Url::fromRoute('entity.user.canonical', array('user' => $last_log['uid'])))->toString(), array()), '%br' => new FormattableMarkup('<br />', array()), '%sorttimestamp' => new FormattableMarkup('<span style="display:none;">' . $last_log['start_time'] . '</span>', array()))) : ''),
+            new FormattableMarkup((($sync_required) ? '<b>' . t('YES') . '</b>' : t('no')), array()),
           );
         }
-        else {
+        elseif (!isset($taxonomy_powertagging[$taxonomy->id()])) {
           // Create rows from disconnected taxonomies.
           $operations[] = Link::fromTextAndUrl(t('Export to PoolParty'), Url::fromRoute('entity.pp_taxonomy_manager.export' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id())))->toString() . ' &rArr;';
           $rows[] = array(
@@ -161,34 +265,47 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
           );
         }
       }
+      // The taxonomy is already used by a different configuration.
+      else {
+        $rows[] = array(
+          Link::fromTextAndUrl($taxonomy->label(), Url::fromRoute('entity.taxonomy_vocabulary.edit_form', array('taxonomy_vocabulary' => $taxonomy->id()), array('attributes' => array('title' => $taxonomy->getDescription())))),
+          new FormattableMarkup('<div class="semantic-connector-italic">' . t('Already in use by PoolParty Taxonomy Manager configuration "%config_title"', array('%config_title' => $used_taxonomies[$taxonomy->id()])) . '</div>', array()),
+          '-',
+        );
+      }
     }
 
-    // Create the table for the connections.
-    $table = array();
-    $table['connections'] = array(
-      '#theme' => 'table',
-      '#header' => array(
-        t('Drupal taxonomy'),
-        t('Operations'),
-        t('PoolParty concept scheme'),
-      ),
-      '#rows' => $rows,
-      '#attributes' => array(
-        'id' => 'pp-taxonomy-manager-interconnection-table',
-        'class' => array('semantic-connector-tablesorter'),
-      ),
-    );
+    // Already synchronized Drupal taxonomies.
+    if (!empty($connected_rows)) {
+      // Create the table for the connections.
+      $table = array();
+      $table['connections'] = array(
+        '#theme' => 'table',
+        '#header' => array(
+          t('Drupal taxonomy'),
+          t('Operations'),
+          $configuration['root_level'] == 'project' ? t('PoolParty project') : t('PoolParty concept scheme'),
+          t('Last Sync'),
+          t('Sync required'),
+        ),
+        '#rows' => $connected_rows,
+        '#attributes' => array(
+          'id' => 'pp-taxonomy-manager-synced-table',
+          'class' => array('semantic-connector-tablesorter'),
+        ),
+      );
 
-    $form['connections'] = array(
-      '#type' => 'item',
-      '#title' => '<h3 class="semantic-connector-table-title">' . t('Interconnection between the Drupal taxonomies and the PoolParty concept schemes') . '</h3>',
-      '#markup' => \Drupal::service('renderer')->render($table),
-    );
+      $form['connections'] = array(
+        '#type' => 'item',
+        '#title' => '<h3 class="semantic-connector-table-title">' . t('Interconnection between the Drupal taxonomies and the PoolParty concept schemes') . '</h3>',
+        '#markup' => \Drupal::service('renderer')->render($table),
+      );
+    }
 
     // Create a table with taxonomies already connected with a PoolParty project
     // via the PowerTagging module.
 
-    $rows = array();
+    /*$rows = array();
     foreach ($taxonomies as $taxonomy) {
       // Show only taxonomies that are already connected with a
       // PoolParty project via PowerTagging.
@@ -217,31 +334,31 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
           );
         }
       }
-    }
+    }*/
 
-    if (count($rows)) {
+    // Potential synchronization candidates.
+    if (!empty($rows)) {
       $table = array();
-      $table['powertagging'] = array(
+      $table['connections'] = array(
         '#theme' => 'table',
         '#header' => array(
           t('Drupal taxonomy'),
-          t('PowerTagging configurations'),
-          t('Operation'),
+          t('Operations'),
+          $configuration['root_level'] == 'project' ? t('PoolParty project') : t('PoolParty concept scheme'),
         ),
         '#rows' => $rows,
         '#attributes' => array(
-          'id' => 'pp-taxonomy-manager-powertagging-table',
+          'id' => 'pp-taxonomy-manager-interconnection-table',
           'class' => array('semantic-connector-tablesorter'),
         ),
       );
 
-      $form['powertagging'] = array(
+      $form['potential_connections'] = array(
         '#type' => 'item',
         '#title' => '<h3 class="semantic-connector-table-title">' . t('Drupal taxonomies already connected with a PoolParty project via PowerTagging module') . '</h3>',
         '#markup' => \Drupal::service('renderer')->render($table),
       );
     }
-
 
     // Add CSS and JS.
     $form['#attached'] = array(

@@ -101,4 +101,16 @@ interface PPTaxonomyManagerConfigInterface extends ConfigEntityInterface {
    *   TRUE if an entity with this ID already exists, FALSE if not.
    */
   public static function exist($id);
+
+  /**
+   * Get the last synchronization log of the taxonomy manager config.
+   *
+   * @param int $vid
+   *   Optional; The vocabulary ID to filter by. Use 0 to not filter by a vid.
+   *
+   * @return array
+   *   An associative array containing start time, end time, user ID and user
+   *   name of the last log.
+   */
+  public function getLastLog($vid = 0);
 }

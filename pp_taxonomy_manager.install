@@ -111,3 +111,20 @@ function pp_taxonomy_manager_schema() {
 
   return $schema;
 }
+
+/**
+ * Add the root level property to existing configurations.
+ */
+function pp_taxonomy_manager_update_8101() {
+  // Update existing configurations.
+  $configs = \Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig::loadMultiple();
+  /** @var \Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig $config */
+  foreach ($configs as $config) {
+    $settings = $config->getConfig();
+    $settings['root_level'] = 'conceptscheme';
+    $config->setConfig($settings);
+    $config->save();
+  }
+
+  return t('Added the root level property to existing PP Taxonomy Manager configurations.');
+}

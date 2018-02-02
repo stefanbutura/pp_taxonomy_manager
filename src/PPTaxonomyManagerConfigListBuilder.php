@@ -36,16 +36,22 @@ class PPTaxonomyManagerConfigListBuilder extends ConfigEntityListBuilder
     $row['server'] = Link::fromTextAndUrl($entity->getConnection()->getTitle(), Url::fromUri($entity->getConnection()->getUrl()))->toString();
 
     // Get the project label.
-    $project_id = $entity->getProjectID();
-    $connection_config = $entity->getConnection()->getConfig();
-    $project_label = 'project label not found';
-    if (isset($connection_config['projects'])) {
-      foreach ($connection_config['projects'] as $project) {
-        if ($project['id'] == $project_id) {
-          $project_label = $project['title'];
-          break;
+    $settings = $entity->getConfig();
+    if ($settings['root_level'] != 'project') {
+      $project_id = $entity->getProjectID();
+      $connection_config = $entity->getConnection()->getConfig();
+      $project_label = t('Project label not found');
+      if (isset($connection_config['projects'])) {
+        foreach ($connection_config['projects'] as $project) {
+          if ($project['id'] == $project_id) {
+            $project_label = $project['title'];
+            break;
+          }
         }
       }
+    }
+    else {
+      $project_label = '-';
     }
     $row['project'] = $project_label;
 

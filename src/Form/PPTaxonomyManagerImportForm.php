@@ -34,21 +34,16 @@ class PPTaxonomyManagerImportForm extends FormBase {
    *   The configuration of the PoolParty Taxonomy manager.
    */
   public function buildForm(array $form, FormStateInterface $form_state, $config = NULL) {
-    /*$vocab = Vocabulary::load("german_vocabulary");
-    var_dump($vocab); exit;*/
     // Check if concept scheme URI is given and is a url.
-    $scheme_uri = $_GET['uri'];
-    if (!UrlHelper::isValid($scheme_uri, TRUE)) {
-      drupal_set_message(t('The URI from the selected concept scheme is not valid.'), 'error');
-      return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
-    }
+    $settings = $config->getConfig();
+    $root_uri = $_GET['uri'];
 
     // Get the project.
     $connection = $config->getConnection();
     $potential_projects = $connection->getApi('PPT')->getProjects();
     $project = NULL;
     foreach ($potential_projects as $potential_project) {
-      if ($potential_project['id'] == $config->getProjectId()) {
+      if ($potential_project['id'] == ($settings['root_level'] == 'project' ? $root_uri : $config->getProjectId())) {
         $project = $potential_project;
         break;
       }
@@ -58,34 +53,49 @@ class PPTaxonomyManagerImportForm extends FormBase {
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
-    // Check if concept scheme exists.
-    $concept_schemes = $config->getConnection()
-      ->getApi('PPT')
-      ->getConceptSchemes($config->getProjectId());
-    $concept_scheme = NULL;
-    foreach ($concept_schemes as $scheme) {
-      if ($scheme['uri'] == $scheme_uri) {
-        $concept_scheme = $scheme;
-        break;
+    $root_object = NULL;
+    if ($settings['root_level'] == 'conceptscheme') {
+      // Check if concept scheme URI is given and is a url.
+      if (!UrlHelper::isValid($root_uri, TRUE)) {
+        drupal_set_message(t('The URI from the selected concept scheme is not valid.'), 'error');
+        return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
+      }
+
+      $concept_schemes = $config->getConnection()
+        ->getApi('PPT')
+        ->getConceptSchemes($config->getProjectId());
+      foreach ($concept_schemes as $scheme) {
+        if ($scheme['uri'] == $root_uri) {
+          $root_object = $scheme;
+          break;
+        }
+      }
+      if (is_null($root_object)) {
+        drupal_set_message(t('The selected concept scheme does not exists.'), 'error');
+        return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
       }
     }
-    if (is_null($concept_scheme)) {
-      drupal_set_message(t('The selected concept scheme does not exists.'), 'error');
-      return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
+    else {
+      $root_object = $project;
     }
 
     // Check if the taxonomy is already connected with a concept scheme.
     $configuration = $config->getConfig();
-    if (in_array($scheme_uri, $configuration['taxonomies'])) {
-      drupal_set_message(t('The concept scheme %scheme is already connected, please select another one.', array('%scheme' => $concept_scheme['title'])), 'error');
+    if (in_array($root_uri, $configuration['taxonomies'])) {
+      drupal_set_message(t('The %rootobject is already connected, please select another one.', array('%rootobject' => (($settings['root_level'] == 'conceptscheme') ? t('concept scheme') : t('project')) . ' ' . $root_object['title'])), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     // Check if the new taxonomy already exists in Drupal.
-    $machine_name = PPTaxonomyManager::createMachineName($concept_scheme['title']);
+    $machine_name = PPTaxonomyManager::createMachineName($root_object['title']);
     $taxonomy = Vocabulary::load($machine_name);
 
-    $description = t('A new taxonomy will be created and all concepts from the concept scheme %scheme will be inserted as terms.', array('%scheme' => $concept_scheme['title']));
+    if ($settings['root_level'] == 'conceptscheme') {
+      $description = t('A new taxonomy will be created and all concepts from the concept scheme %scheme will be inserted as terms.', array('%scheme' => $root_object['title']));
+    }
+    else {
+      $description = t('A new taxonomy will be created and all concepts / concept schemes from the project %project will be inserted as terms.', array('%project' => $root_object['title']));
+    }
     $description .= '<br />' . t('This can take a while. Please wait until the import is finished.');
     $form['description'] = array(
       '#markup' => $description,
@@ -100,7 +110,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $form['taxonomy_name'] = array(
       '#title' => t('Name of the new taxonomy'),
       '#type' => 'textfield',
-      '#default_value' => $concept_scheme['title'],
+      '#default_value' => $root_object['title'],
       '#description' => $field_description,
       '#required' => TRUE,
     );
@@ -108,9 +118,12 @@ class PPTaxonomyManagerImportForm extends FormBase {
     // Language mapping.
     $available_languages = \Drupal::languageManager()->getLanguages();
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
+    $pp_languages = $connection->getApi('PPT')->getLanguages();
     $project_language_options = array();
     foreach ($project['availableLanguages'] as $project_language) {
-      $project_language_options[$project_language] = $project_language;
+      if (isset($pp_languages[$project_language])) {
+        $project_language_options[$project_language] = $pp_languages[$project_language];
+      }
     }
     $form['languages'] = array(
       '#type' => 'item',
@@ -126,7 +139,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
           '#description' => t('Select the PoolParty project language'),
           '#options' => $project_language_options,
           '#empty_option' => '',
-          '#default_value' => (isset($project_language_options[$lang->getId()]) ? $project_language_options[$lang->getId()] : ''),
+          '#default_value' => ($lang->getId() == $default_language ? $project['defaultLanguage'] : ''),
           '#required' => ($lang->getId() == $default_language ? TRUE : FALSE),
         );
       }
@@ -152,7 +165,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     );
 
     $form_state->set('config', $config);
-    $form_state->set('concept_scheme', $concept_scheme);
+    $form_state->set('root_object', $root_object);
 
     return $form;
   }
@@ -175,11 +188,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
       }
     }
 
-    // Check whether all languages are different.
     $languages = array_unique($values['languages']);
-    if (count($values['languages']) != count($languages)) {
-      $form_state->setErrorByName('languages', t('The selected languages must be different.'));
-    }
     if (count(array_filter($languages)) > 1 && !\Drupal::moduleHandler()->moduleExists('content_translation')) {
       $form_state->setErrorByName('languages', t('Module "Content Translation" needs to be enabled for multilingual operations.'));
     }
@@ -197,7 +206,9 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $values = $form_state->getValues();
     /** @var PPTaxonomyManagerConfig $config */
     $config = $form_state->get('config');
-    $concept_scheme = $form_state->get('concept_scheme');
+    $settings = $config->getConfig();
+    $root_object = $form_state->get('root_object');
+    $root_uri = ($settings['root_level'] == 'project') ? $root_object['id'] : $root_object['uri'];
 
     $concepts_per_request = $values['concepts_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
@@ -205,17 +216,17 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $manager = PPTaxonomyManager::getInstance($config);
 
     // Create the new taxonomy .
-    $taxonomy = $manager->createTaxonomy($concept_scheme, $values['taxonomy_name']);
+    $taxonomy = $manager->createTaxonomy($root_object, $values['taxonomy_name']);
     $manager->enableTranslation($taxonomy, $languages);
 
     // Add URI and alt. labels fields (if not exists) to the taxonomy.
     $manager->adaptTaxonomyFields($taxonomy);
 
     // Connect the new taxonomy with the concept scheme.
-    $manager->addConnection($taxonomy->id(), $concept_scheme['uri'], $languages);
+    $manager->addConnection($taxonomy->id(), $root_uri, $languages);
 
     // Import all concepts.
-    $manager->updateTaxonomyTerms($taxonomy, $concept_scheme['uri'], $languages, $concepts_per_request);
+    $manager->updateTaxonomyTerms('import', $taxonomy, $root_uri, $languages, $concepts_per_request);
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }
 }

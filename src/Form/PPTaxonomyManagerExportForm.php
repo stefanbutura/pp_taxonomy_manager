@@ -42,17 +42,21 @@ class PPTaxonomyManagerExportForm extends FormBase {
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
-    // Get the project.
     $connection = $config->getConnection();
-    $potential_projects = $connection->getApi('PPT')->getProjects();
+    $settings = $config->getConfig();
+
+    // Get the project.
     $project = NULL;
-    foreach ($potential_projects as $potential_project) {
-      if ($potential_project['id'] == $config->getProjectId()) {
-        $project = $potential_project;
+    $project_names = array();
+    $pp_projects = $connection->getApi('PPT')->getProjects();
+    foreach ($pp_projects as $pp_project) {
+      $project_names[] = $pp_project['title'];
+      if ($pp_project['id'] == $config->getProjectId()) {
+        $project = $pp_project;
         break;
       }
     }
-    if (is_null($project)) {
+    if ($settings['root_level'] == 'conceptscheme' && is_null($project)) {
       drupal_set_message(t('The configured PoolParty project does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
@@ -70,16 +74,27 @@ class PPTaxonomyManagerExportForm extends FormBase {
       ->loadTree($taxonomy->id());
     $count = count($tree);
 
-    $description = t('A new concept scheme will be created in the project %project and %count terms will be inserted.', array(
-      '%project' => $project['title'],
-      '%count' => $count,
-    ));
+    if ($settings['root_level'] == 'conceptscheme') {
+      $description = t('A new concept scheme will be created in the project %project and %count terms will be inserted.', array(
+        '%project' => $project['title'],
+        '%count' => $count,
+      ));
+    }
+    else {
+      $form['project_names'] = array(
+        '#type' => 'value',
+        '#value' => $project_names,
+      );
+      $description = t('A new PoolParty project will be created and %count concepts / concept schemes will be inserted.', array(
+        '%count' => $count,
+      ));
+    }
     $description .= '<br />' . t('This can take a while. Please wait until the export is finished.');
     $form['description'] = array(
       '#markup' => $description,
     );
     $form['concept_scheme_title'] = array(
-      '#title' => t('Title of the new concept scheme'),
+      '#title' => t('Title of the new %rootobject', array('%rootobject' => (($settings['root_level'] == 'conceptscheme') ? t('concept scheme') : t('project')))),
       '#type' => 'textfield',
       '#default_value' => $taxonomy->label(),
       '#required' => TRUE,
@@ -92,30 +107,66 @@ class PPTaxonomyManagerExportForm extends FormBase {
     else {
       $available_languages = array(\Drupal::languageManager()->getDefaultLanguage());
     }
+    // Map the available languages and remove disabled ones.
+    $enabled_languages = array();
+    /** @var LanguageInterface $lang */
+    foreach ($available_languages as $lang) {
+      if (!$lang->isLocked()) {
+        $enabled_languages[$lang->getId()] = $lang->getName();
+      }
+    }
 
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
-    $project_language_options = array();
-    foreach ($project['availableLanguages'] as $project_language) {
-      $project_language_options[$project_language] = $project_language;
+    if ($settings['root_level'] == 'project') {
+      $form['default_language'] = array(
+        '#type' => 'select',
+        '#title' => t('Default project language'),
+        '#description' => t('Select the default language of the new PoolParty project'),
+        '#options' => $enabled_languages,
+        '#default_value' => $default_language,
+        '#required' => TRUE,
+      );
     }
+
     $form['languages'] = array(
       '#type' => 'item',
       '#title' => t('Map the Drupal languages with the PoolParty project languages'),
       '#description' => count($available_languages) > 1 ? t('The term-translations of the non-selected languages are not exported.') : '',
       '#tree' => TRUE,
     );
-    /** @var LanguageInterface $lang */
-    foreach ($available_languages as $lang) {
-      if (!$lang->isLocked()) {
-        $form['languages'][$lang->getId()] = array(
+
+    $pp_languages = $connection->getApi('PPT')->getLanguages();
+    if ($settings['root_level'] == 'conceptscheme') {
+      $project_language_options = array();
+      foreach ($project['availableLanguages'] as $project_language) {
+        if (isset($pp_languages[$project_language])) {
+          $project_language_options[$project_language] = $pp_languages[$project_language];
+        }
+      }
+      asort($project_language_options);
+
+      foreach ($enabled_languages as $lang_id => $lang_title) {
+        $form['languages'][$lang_id] = array(
           '#type' => 'select',
-          '#title' => t('Drupal language %language', array('%language' => $lang->getName())),
+          '#title' => t('Drupal language %language', array('%language' => $lang_title)),
           '#description' => t('Select the PoolParty project language'),
           '#options' => $project_language_options,
           '#empty_option' => '',
-          '#default_value' => ($lang->getId() == $default_language ? $project['defaultLanguage'] : ''),
-          '#required' => ($lang->getId() == $default_language ? TRUE : FALSE),
-          '#disabled' => ($lang->getId() == $default_language ? TRUE : FALSE),
+          '#default_value' => (isset($project_language_options[$lang_id]) ? $lang_id : ''),
+          '#required' => ($lang_id == $default_language ? TRUE : FALSE),
+        );
+      }
+    }
+    else {
+      foreach ($enabled_languages as $lang_id => $lang_title) {
+        $form['languages'][$lang_id] = array(
+          '#type' => 'select',
+          '#title' => t('Drupal language %language', array('%language' => $lang_title)),
+          '#description' => t('Select the PoolParty project language'),
+          '#options' => $pp_languages,
+          '#empty_option' => '',
+          '#default_value' => isset($pp_languages[$lang_id]) ? $lang_id : NULL,
+          '#required' => ($lang_id == $default_language ? TRUE : FALSE),
         );
       }
     }
@@ -151,15 +202,19 @@ class PPTaxonomyManagerExportForm extends FormBase {
   public function validateForm(array &$form, FormStateInterface $form_state) {
     $values = $form_state->getValues();
 
+    if (!empty($values['project_names']) && in_array($values['concept_scheme_title'], $values['project_names'])) {
+      $form_state->setErrorByName('concept_scheme_title', t('A PoolParty project with the title "%title" already exists. Please select a different title.', array('%title' => $values['concept_scheme_title'])));
+    }
+
     // Check whether all languages are different.
     $languages = array_unique($values['languages']);
     if (count($values['languages']) != count($languages)) {
       $form_state->setErrorByName('languages', t('The selected languages must be different.'));
     }
 
-    if (count(array_filter($languages)) > 1 && !\Drupal::moduleHandler()->moduleExists('content_translation')) {
+    /*if (count(array_filter($languages)) > 1 && !\Drupal::moduleHandler()->moduleExists('content_translation')) {
       $form_state->setErrorByName('languages', t('Module "Content Translation" needs to be enabled for multilingual operations.'));
-    }
+    }*/
 
     $concepts_per_request = $values['terms_per_request'];
     if (empty($concepts_per_request) || !ctype_digit($concepts_per_request) || (int) $concepts_per_request == 0 || (int) $concepts_per_request > 100) {
@@ -176,6 +231,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
     $config = $form_state->get('config');
     /** @var Vocabulary $taxonomy */
     $taxonomy = $form_state->get('taxonomy');
+    $settings = $config->getConfig();
 
     $terms_per_request = $values['terms_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
@@ -185,14 +241,19 @@ class PPTaxonomyManagerExportForm extends FormBase {
     // Add URI and alt. labels fields (if not exists) to the taxonomy.
     $manager->adaptTaxonomyFields($taxonomy);
 
-    // Create the new concept scheme in the PoolParty thesaurus.
-    $scheme_uri = $manager->createConceptScheme($taxonomy, $values['concept_scheme_title']);
+    if ($settings['root_level'] == 'conceptscheme') {
+      // Create the new concept scheme in the PoolParty thesaurus.
+      $root_uri = $manager->createConceptScheme($taxonomy, $values['concept_scheme_title']);
+    }
+    else {
+      $root_uri = $manager->createProject($taxonomy, $values['concept_scheme_title'], $values['default_language'], array_values($values['languages']));
+    }
 
-    // Connect the taxonomy with the new concept scheme.
-    $manager->addConnection($taxonomy->id(), $scheme_uri, $languages);
+    // Connect the taxonomy with the new concept scheme / project.
+    $manager->addConnection($taxonomy->id(), $root_uri, $languages);
 
     // Export all taxonomy terms.
-    $manager->exportTaxonomyTerms($taxonomy, $scheme_uri, $languages, $terms_per_request);
+    $manager->exportTaxonomyTerms($taxonomy, $root_uri, $languages, $terms_per_request);
 
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }

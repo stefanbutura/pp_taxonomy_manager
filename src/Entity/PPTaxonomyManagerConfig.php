@@ -95,7 +95,9 @@ class PPTaxonomyManagerConfig extends ConfigEntityBase implements PPTaxonomyMana
    * {@inheritdoc|}
    */
   public function setProjectId($project_id) {
-    $this->project_id = $project_id;
+    if (is_string($project_id) || is_null($project_id)) {
+      $this->project_id = $project_id;
+    }
   }
 
   /**
@@ -154,6 +156,7 @@ class PPTaxonomyManagerConfig extends ConfigEntityBase implements PPTaxonomyMana
   public static function getDefaultConfig() {
     return array(
       'taxonomies' => array(),
+      'root_level' => 'project',
     );
   }
 
@@ -173,5 +176,33 @@ class PPTaxonomyManagerConfig extends ConfigEntityBase implements PPTaxonomyMana
       ->count()
       ->execute();
     return (bool) $entity_count;
+  }
+
+  /**
+   * Get the last synchronization log of the taxonomy manager config.
+   *
+   * @param int $vid
+   *   Optional; The vocabulary ID to filter by. Use 0 to not filter by a vid.
+   *
+   * @return array
+   *   An associative array containing start time, end time, user ID and user
+   *   name of the last log.
+   */
+  public function getLastLog($vid = 0) {
+    $last_log_query = \Drupal::database()->select('pp_taxonomy_manager_logs', 'l')
+      ->fields('l', array('start_time', 'end_time', 'uid'));
+
+    if ($vid != 0) {
+      $last_log_query->condition('vid', $vid);
+    }
+
+    $last_log_query->join('users_field_data', 'u', 'l.uid = u.uid');
+    $last_log_query->fields('u', array('name'));
+    $last_log = $last_log_query->orderBy('start_time', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    return $last_log;
   }
 }

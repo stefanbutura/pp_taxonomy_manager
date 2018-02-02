@@ -23,20 +23,20 @@ class PPTaxonomyManagerBatches {
    *   The language of the taxonomy terms that are to be exported.
    * @param string $pp_lang
    *   The language of the concept that are to be created.
-   * @param string $scheme_uri
-   *   The concept scheme URI where the terms should be created.
+   * @param string $root_uri
+   *   The concept scheme URI or project ID where the terms should be created.
    * @param array $info
    *   An associative array of information about the batch process.
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public static function exportTerms($manager, array $terms, $drupal_lang, $pp_lang, $scheme_uri, array $info, array &$context) {
+  public static function exportTerms($manager, array $terms, $drupal_lang, $pp_lang, $root_uri, array $info, array &$context) {
     if (!isset($context['results']['processed'])) {
       $context['results']['processed'] = 0;
       $context['results']['hash_update_processed'] = 0;
       $context['results']['translation_processed'] = 0;
       $context['results']['exported_terms'] = array(
-        array('uri' => $scheme_uri, 'parents' => array()),
+        array('uri' => $root_uri, 'parents' => array()),
       );
     }
 

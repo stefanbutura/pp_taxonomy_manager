@@ -1,13 +1,14 @@
 <?php
 /**
  * @file
- * Contains \Drupal\pp_taxonomy_manager\Form\PPTaxonomyManagerSyncForm.
+ * Contains \Drupal\pp_taxonomy_manager\Form\PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm.
  */
 
 namespace Drupal\pp_taxonomy_manager\Form;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Language\Language;
+use Drupal\Core\Language\LanguageInterface;
 use Drupal\Core\Url;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
 use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
@@ -18,12 +19,12 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
  * The confirmation-form for the sync of a Drupal taxonomy with a taxonomy from
  * a PoolParty server.
  */
-class PPTaxonomyManagerSyncForm extends FormBase {
+class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
   /**
    * {@inheritdoc}
    */
   public function getFormId() {
-    return 'pp_taxonomy_manager_sync_form';
+    return 'pp_taxonomy_manager_powertagging_taxonomy_update_form';
   }
 
   /**
@@ -31,55 +32,48 @@ class PPTaxonomyManagerSyncForm extends FormBase {
    *
    * @param PPTaxonomyManagerConfig $config
    *   The configuration of the PoolParty Taxonomy manager.
-   * @param Vocabulary $taxonomy
-   *   The taxonomy to use.
+   * @param \Drupal\powertagging\Entity\PowerTaggingConfig $powertagging_config
+   *   The PowerTagging configuration to use.
    */
-  public function buildForm(array $form, FormStateInterface $form_state, $config = NULL, $taxonomy = NULL) {
+  public function buildForm(array $form, FormStateInterface $form_state, $config = NULL, $powertagging_config = NULL) {
     // Check if taxonomy exists.
+    if (!is_object($powertagging_config)) {
+      drupal_set_message(t('The PowerTagging configuration does not exists.'), 'error');
+      return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
+    }
+
+    // Check if taxonomy exists.
+    $powertagging_settings = $powertagging_config->getConfig();
+    $taxonomy = Vocabulary::load($powertagging_settings['projects'][$powertagging_config->getProjectId()]['taxonomy_id']);
     if ($taxonomy === FALSE) {
       drupal_set_message(t('The selected taxonomy does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
-    // Get the project.
     $connection = $config->getConnection();
-    $settings = $config->getConfig();
-
-    // Get the ID of the project.
-    if ($settings['root_level'] == 'conceptscheme') {
-      $project_id = $config->getProjectId();
-    }
-    else {
-      if (!isset($settings['taxonomies'][$taxonomy->id()])) {
-        drupal_set_message(t('The selected taxonomy is not yet connected to PoolParty.'), 'error');
-        return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
-      }
-      $project_id = $settings['taxonomies'][$taxonomy->id()];
-    }
 
     // Get the project.
     $project = NULL;
     $pp_projects = $connection->getApi('PPT')->getProjects();
     foreach ($pp_projects as $pp_project) {
-      $project_names[] = $pp_project['title'];
-      if ($pp_project['id'] == $project_id) {
+      if ($pp_project->id == $powertagging_config->getProjectId()) {
         $project = $pp_project;
         break;
       }
     }
     if (is_null($project)) {
-      drupal_set_message(t('The configured PoolParty project does not exists.'), 'error');
+      drupal_set_message(t('The configured PoolParty project does not exist.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     // Check if the taxonomy is connected with a concept scheme.
     $configuration = $config->getConfig();
-    if (!isset($configuration['taxonomies'][$taxonomy->id()])) {
-      drupal_set_message(t('The taxonomy %taxonomy is not connected, please export the taxonomy first.', array('%taxonomy' => $taxonomy->label())), 'error');
+    if (isset($configuration['taxonomies'][$taxonomy->id()])) {
+      drupal_set_message(t('The taxonomy %taxonomy is already a completed taxonomy, please use the normal syncronization process.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
-    $description = t('The taxonomy %taxonomy will be updated. It means that terms will be updated, deleted and/or created.', array('%taxonomy' => $taxonomy->label()));
+    $description = t('The taxonomy %taxonomy will be converted into a completed taxonomy. It means that terms will be updated, deleted and/or created and hierarchy will be added.', array('%taxonomy' => $taxonomy->label()));
     $description .= '<br />' . t('This can take a while. Please wait until the synchronization is finished.');
 
     $form['description'] = array(
@@ -88,13 +82,6 @@ class PPTaxonomyManagerSyncForm extends FormBase {
 
     // Language mapping.
     $available_languages = \Drupal::languageManager()->getLanguages();
-
-    $enabled_languages = array();
-    foreach ($available_languages as $lang) {
-      if (!$lang->isLocked()) {
-        $enabled_languages[$lang->getId()] = $lang->getName();
-      }
-    }
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
 
     $form['languages'] = array(
@@ -110,31 +97,16 @@ class PPTaxonomyManagerSyncForm extends FormBase {
         $project_language_options[$project_language] = $pp_languages[$project_language];
       }
     }
-    asort($project_language_options);
-    if ($settings['root_level'] == 'conceptscheme') {
-      foreach ($enabled_languages as $lang_id => $lang_title) {
-        $form['languages'][$lang_id] = array(
+    foreach ($available_languages as $lang) {
+      if (!$lang->isLocked()) {
+        $form['languages'][$lang->getId()] = array(
           '#type' => 'select',
-          '#title' => t('Drupal language %language', array('%language' => $lang_title)),
+          '#title' => t('Drupal language %language', array('%language' => $lang->getName())),
           '#description' => t('Select the PoolParty project language'),
           '#options' => $project_language_options,
           '#empty_option' => '',
-          '#default_value' => isset($settings['languages'][$taxonomy->id()][$lang_id]) ? $settings['languages'][$taxonomy->id()][$lang_id] : '',
-          '#required' => ($lang_id == $default_language ? TRUE : FALSE),
-          '#disabled' => ($lang_id == $default_language ? TRUE : FALSE),
-        );
-      }
-    }
-    else {
-      foreach ($enabled_languages as $lang_id => $lang_title) {
-        $form['languages'][$lang_id] = array(
-          '#type' => 'select',
-          '#title' => t('Drupal language %language', array('%language' => $lang_title)),
-          '#description' => t('Select the PoolParty project language'),
-          '#options' => $project_language_options,
-          '#empty_option' => '',
-          '#default_value' => isset($settings['languages'][$taxonomy->id()][$lang_id]) ? $settings['languages'][$taxonomy->id()][$lang_id] : '',
-          '#required' => ($lang_id == $default_language ? TRUE : FALSE),
+          '#default_value' => isset($project_language_options[$lang->getId()]) ? $lang->getId() : '',
+          '#required' => ($lang->getId() == $default_language ? TRUE : FALSE),
         );
       }
     }
@@ -159,6 +131,7 @@ class PPTaxonomyManagerSyncForm extends FormBase {
 
     $form_state->set('config', $config);
     $form_state->set('taxonomy', $taxonomy);
+    $form_state->set('powertagging_config', $powertagging_config);
 
     return $form;
   }
@@ -201,6 +174,8 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     $config = $form_state->get('config');
     /** @var Vocabulary $taxonomy */
     $taxonomy = $form_state->get('taxonomy');
+    /** @var \Drupal\powertagging\Entity\PowerTaggingConfig $powertagging_config */
+    $powertagging_config = $form_state->get('powertagging_config');
 
     $concepts_per_request = $values['concepts_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
@@ -211,12 +186,10 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     $manager->adaptTaxonomyFields($taxonomy);
 
     // Update the connection.
-    $settings = $config->getConfig();
-    $root_uri = $settings['taxonomies'][$taxonomy->id()];
-    $manager->updateConnection($taxonomy->id(), $root_uri, $languages);
+    $manager->addConnection($taxonomy->id(), $powertagging_config->getProjectId(), $languages);
 
     // Update all taxonomy terms.
-    $manager->updateTaxonomyTerms('sync', $taxonomy, $root_uri, $languages, $concepts_per_request);
+    $manager->updateTaxonomyTerms('powertagging_taxonomy_update', $taxonomy, $powertagging_config->getProjectId(), $languages, $concepts_per_request);
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }
 }

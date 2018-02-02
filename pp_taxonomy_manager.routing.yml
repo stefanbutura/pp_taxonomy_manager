@@ -92,6 +92,20 @@ entity.pp_taxonomy_manager.import:
       config:
         type: entity:pp_taxonomy_manager
 
+entity.pp_taxonomy_manager.powertagging_taxonomy_update:
+  path: '/admin/config/semantic-drupal/pp-taxonomy-manager/configurations/{config}/powertagging-taxonomy-update/{powertagging_config}'
+  defaults:
+    _form: '\Drupal\pp_taxonomy_manager\Form\PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm'
+    _title: 'Make a PowerTagging taxonomy a completely synched taxonomy.'
+  requirements:
+    _permission: 'administer pp_taxonomy_manager'
+  options:
+    parameters:
+      config:
+        type: entity:pp_taxonomy_manager
+      powertagging_config:
+        type: entity:powertagging
+
 entity.pp_taxonomy_manager.disconnect:
   path: '/admin/config/semantic-drupal/pp-taxonomy-manager/configurations/{config}/disconnect/{taxonomy}'
   defaults:

@@ -41,18 +41,9 @@ class PPTaxonomyManagerDisconnectForm extends FormBase {
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
-    // Get the project.
-    $connection = $config->getConnection();
-    $potential_projects = $connection->getApi('PPT')->getProjects();
-    $project = NULL;
-    foreach ($potential_projects as $potential_project) {
-      if ($potential_project['id'] == $config->getProjectId()) {
-        $project = $potential_project;
-        break;
-      }
-    }
-    if (is_null($project)) {
-      drupal_set_message(t('The configured PoolParty project does not exists.'), 'error');
+    $settings = $config->getConfig();
+    if ($settings['root_level'] == 'project' && !isset($settings['taxonomies'][$taxonomy->id()])) {
+      drupal_set_message(t('The selected taxonomy is not yet connected to PoolParty.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 

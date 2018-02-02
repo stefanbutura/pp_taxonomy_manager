@@ -6,6 +6,8 @@
  */
 
 namespace Drupal\pp_taxonomy_manager;
+use Drupal\Core\Link;
+use Drupal\Core\Url;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\link\LinkItemInterface;
@@ -127,88 +129,10 @@ class PPTaxonomyManager {
   }
 
   /**
-   * Changes the translation mode of a taxonomy from "Localize" to "Translate".
-   *
-   * @param object $taxonomy
-   *   A Drupal taxonomy object.
-   * @param array $languages
-   *   An array of languages:
-   *    key = Drupal language
-   *    value = PoolParty language.
-   */
-  protected function changeTranslationMode($taxonomy, $languages) {
-    // @todo: implement method.
-    /*$default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
-    $selected_languages = array_keys($languages);
-
-    $processed_terms = array();
-    $parents = array();
-
-    // Go through all taxonomy terms.
-    $tree = taxonomy_get_tree($taxonomy->vid, 0, NULL, TRUE);
-    foreach ($tree as $term) {
-      if (isset($processed_terms[$term->id()])) {
-        continue;
-      }
-      $processed_terms[$term->id()] = TRUE;
-      $translation_set = NULL;
-      $parents[$term->id()] = array();
-
-      // Go through all selected languages.
-      foreach ($selected_languages as $language) {
-        $translate_term = clone $term;
-        $save_translation = FALSE;
-
-        // Create a new translation set if the language is the default language.
-        if ($language == $default_language) {
-          $save_translation = TRUE;
-          $translation_set = i18n_translation_set_create('taxonomy_term', $taxonomy->machine_name);
-        }
-
-        // For all other languages get its translations if exists and create new
-        // term object.
-        else {
-          $translations = i18n_string_translation_search('taxonomy:term:' . $term->id() . ':*', $language);
-          if (!empty($translations)) {
-            $save_translation = TRUE;
-            $translate_term->tid = NULL;
-            $translate_term->parent = NULL;
-            foreach ($translations as $translation) {
-              $translate_term->{$translation->property} = $translation->translations[$language];
-            }
-          }
-        }
-
-        // Save the term and add it to the translation set.
-        if ($translation_set && $save_translation) {
-          // Add the parents for the terms with non-default language.
-          if ($language != $default_language) {
-            foreach ($term->getParents() as $parent) {
-              if (!empty($parents[$parent][$language])) {
-                $translate_term->parent[] = $parents[$parent][$language];
-              }
-            }
-          }
-          // Save the term.
-          $translate_term->language = $language;
-          taxonomy_term_save($translate_term);
-          // Add the term to the translation set.
-          $translation_set->add_item($translate_term, $language);
-          $translation_set->save();
-
-          if ($language != $default_language) {
-            $parents[$term->id()][$language] = $translate_term->tid;
-          }
-        }
-      }
-    }*/
-  }
-
-  /**
    * Creates a new Drupal taxonomy.
    *
-   * @param object $concept_scheme
-   *   A PoolParty concept scheme.
+   * @param array $root_object
+   *   Either a PoolParty concept scheme or a PoolParty project.
    * @param string $taxonomy_name
    *   The name of the taxonomy to create If NULL is given the title of the
    *   concept scheme gets used (default).
@@ -216,10 +140,10 @@ class PPTaxonomyManager {
    * @return Vocabulary
    *   The created taxonomy.
    */
-  public function createTaxonomy($concept_scheme, $taxonomy_name = '') {
+  public function createTaxonomy(array $root_object, $taxonomy_name = '') {
     $taxonomy_name = trim(\Drupal\Component\Utility\Html::escape($taxonomy_name));
     if (empty($taxonomy_name)) {
-      $taxonomy_name = $concept_scheme->title;
+      $taxonomy_name = $root_object['title'];
     }
 
     // Check if the new taxonomy already exists.
@@ -231,7 +155,7 @@ class PPTaxonomyManager {
       $taxonomy = Vocabulary::create(array(
         'vid' => $machine_name,
         'machine_name' => $machine_name,
-        'description' => substr(t('Automatically created by PoolParty Taxonomy Manager.') . ((isset($concept_scheme->descriptions) && !empty($concept_scheme->descriptions)) ? ' ' . $concept_scheme->descriptions[0] : ''), 0, 128),
+        'description' => substr(t('Automatically created by PoolParty Taxonomy Manager.') . ' ' . (isset($root_object['description']) ? $root_object['description'] : ((isset($root_object['descriptions']) && !empty($root_object['descriptions'])) ? ' ' . $root_object['descriptions'][0] : '')), 0, 128),
         'name' => $taxonomy_name,
       ));
       $taxonomy->save();
@@ -369,12 +293,54 @@ class PPTaxonomyManager {
   }
 
   /**
+   * Creates a new project on the specified PoolParty server.
+   *
+   * @param Vocabulary $taxonomy
+   *   A Drupal taxonomy object.
+   * @param string $project_title
+   *   The title of the project to create. If NULL is given the name of
+   *   the taxonomy gets used (default).
+   * @param string $default_language
+   *   The language code of the language to use as default for the new project
+   *   in PoolParty.
+   * @param array $available_languages
+   *   A complete array of languages available for the new PoolParty project;
+   *   If this array is empty only the default language will be used.
+   *
+   * @return string
+   *   The ID of the new project.
+   */
+  public function createProject(Vocabulary $taxonomy, $project_title = '', $default_language = 'en', array $available_languages = array()) {
+    $project_title = trim(\Drupal\Component\Utility\Html::escape($project_title));
+    if (empty($project_title)) {
+      $project_title = $taxonomy->label();
+    }
+
+    if (empty($available_languages)) {
+      $available_languages = array($default_language);
+    }
+
+    $description = 'Automatically created by Drupal. ' . $taxonomy->getDescription();
+    /* @var $ppt SemanticConnectorPPTApi */
+    $ppt = $this->config->getConnection()->getAPI('PPT');
+
+    $project_id = $ppt->createProject($project_title, $default_language, array('Public'), array('description' => $description, 'availableLanguages' => $available_languages));
+    drupal_set_message(t('Project %project successfully created.', array('%project' => $project_title)));
+    \Drupal::logger('pp_taxonomy_manager')->notice('Project created: %project (ID = %id)', array(
+      '%project' => $project_title,
+      '%id' => $project_id,
+    ));
+
+    return $project_id;
+  }
+
+  /**
    * Creates a batch for exporting all terms of a taxonomy.
    *
    * @param Vocabulary $vocabulary
    *   A Drupal taxonomy object.
-   * @param string $scheme_uri
-   *   A concept scheme URI
+   * @param string $root_uri
+   *   A concept scheme URI or project ID.
    * @param array $languages
    *   An array of languages:
    *    key = Drupal language
@@ -382,7 +348,7 @@ class PPTaxonomyManager {
    * @param int $terms_per_request
    *   Count of taxonomy terms per http request.
    */
-  public function exportTaxonomyTerms(Vocabulary $vocabulary, $scheme_uri, $languages, $terms_per_request) {
+  public function exportTaxonomyTerms(Vocabulary $vocabulary, $root_uri, $languages, $terms_per_request) {
     $start_time = time();
 
     // Configure the batch data.
@@ -420,7 +386,7 @@ class PPTaxonomyManager {
           $terms,
           $default_language,
           $languages[$default_language],
-          $scheme_uri,
+          $root_uri,
           $info,
         ),
       );
@@ -439,8 +405,7 @@ class PPTaxonomyManager {
     unset($languages[$default_language]);
     if (!empty($languages)) {
       foreach ($languages as $drupal_lang => $pp_lang) {
-        /*$tree = i18n_taxonomy_get_tree($vocabulary->id(), $drupal_lang, 0, NULL, TRUE);
-        $count = count($tree);
+        /*$count = count($tree);
         $info = array(
           'total' => $count,
           'start_time' => $start_time,
@@ -493,8 +458,9 @@ class PPTaxonomyManager {
       unset($custom_fields[$normal_field]);
     }
 
+    $settings = $this->config->getConfig();
     $exported_terms = &$context['results']['exported_terms'];
-    $project_id = $this->config->getProjectId();
+    $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
     /** @var Term $term */
     foreach ($terms as $term) {
       // Create an array of parent IDs
@@ -519,32 +485,38 @@ class PPTaxonomyManager {
           if (isset($exported_terms[$parent_tid])) {
             // Create new concept.
             if (!$created) {
-              $uri = $ppt->createConcept($project_id, $term->getName(), $exported_terms[$parent_tid]['uri']);
-              // Add definition, alt labels, hidden labels and custom properties
-              // if required.
-              if (!empty($term->getDescription())) {
-                $ppt->addLiteral($project_id, $uri, 'definition', $term->getDescription(), $pp_lang);
+              if ($settings['root_level'] == 'project' && $parent_tid == 0) {
+                $uri = $ppt->createConceptScheme($project_id, $term->getName(), (!empty($term->getDescription()) ? $term->getDescription() : ''));
               }
-              $alt_label_values = $term->get('field_alt_labels')->getValue();
-              if (!empty($alt_label_values)) {
-                $alt_labels = explode(',', $alt_label_values[0]['value']);
-                foreach ($alt_labels as $alt_label) {
-                  $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+              else {
+                $uri = $ppt->createConcept($project_id, $term->getName(), $exported_terms[$parent_tid]['uri']);
+                // Add definition, alt labels, hidden labels and custom properties
+                // if required.
+                if (!empty($term->getDescription())) {
+                  $ppt->addLiteral($project_id, $uri, 'definition', $term->getDescription(), $pp_lang);
                 }
-              }
-              $hidden_label_values = $term->get('field_hidden_labels')->getValue();
-              if (!empty($hidden_label_values)) {
-                $hidden_labels = explode(',', $hidden_label_values[0]['value']);
-                foreach ($hidden_labels as $hidden_label) {
-                  $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+                $alt_label_values = $term->get('field_alt_labels')->getValue();
+                if (!empty($alt_label_values)) {
+                  $alt_labels = explode(',', $alt_label_values[0]['value']);
+                  foreach ($alt_labels as $alt_label) {
+                    $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+                  }
                 }
-              }
-              if (!empty($custom_fields)) {
-                foreach ($custom_fields as $field_id => $field_schema) {
-                  if (isset($term->{$field_id})) {
-                    $custom_field_values = $term->{$field_id}->getValue();
-                    if (!empty($custom_field_values)) {
-                      $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
+                $hidden_label_values = $term->get('field_hidden_labels')
+                  ->getValue();
+                if (!empty($hidden_label_values)) {
+                  $hidden_labels = explode(',', $hidden_label_values[0]['value']);
+                  foreach ($hidden_labels as $hidden_label) {
+                    $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+                  }
+                }
+                if (!empty($custom_fields)) {
+                  foreach ($custom_fields as $field_id => $field_schema) {
+                    if (isset($term->{$field_id})) {
+                      $custom_field_values = $term->{$field_id}->getValue();
+                      if (!empty($custom_field_values)) {
+                        $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
+                      }
                     }
                   }
                 }
@@ -569,8 +541,9 @@ class PPTaxonomyManager {
             }
             // Add additional parents.
             else {
+              $relation_type = ($settings['root_level'] != 'project' || $parent_tid != 0) ? 'broader' : 'topConceptOf';
               $uri = $exported_terms[$term->id()]['uri'];
-              $ppt->addRelation($project_id, $uri, $exported_terms[$parent_tid]['uri']);
+              $ppt->addRelation($project_id, $uri, $exported_terms[$parent_tid]['uri'], $relation_type);
               $exported_terms[$term->id()]['parents'][] = $parent_tid;
             }
           }
@@ -579,9 +552,10 @@ class PPTaxonomyManager {
       // Add missing parents to the concept.
       else {
         foreach ($parent_tids as $parent_tid) {
+          $relation_type = ($settings['root_level'] != 'project' || $parent_tid != 0) ? 'broader' : 'topConceptOf';
           if (isset($exported_terms[$parent_tid]) && !in_array($parent_tid, $exported_terms[$term->id()]['parents'])) {
             $uri = $exported_terms[$term->id()]['uri'];
-            $ppt->addRelation($project_id, $uri, $exported_terms[$parent_tid]['uri']);
+            $ppt->addRelation($project_id, $uri, $exported_terms[$parent_tid]['uri'], $relation_type);
             $exported_terms[$term->id()]['parents'][] = $parent_tid;
           }
         }
@@ -604,22 +578,53 @@ class PPTaxonomyManager {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
+    $settings = $this->config->getConfig();
     $exported_terms = &$context['results']['exported_terms'];
     $project_id = $this->config->getProjectId();
     /** @var Term $term */
     foreach ($terms as $term) {
       if (isset($exported_terms[$term->id()]) && !$exported_terms[$term->id()]['hash']) {
+        /** @var TermStorage $term_storage */
+        $term_storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+        $parents = $term_storage->loadParents($term->id());
+        $parent_tids = array();
+        if (empty($parents)) {
+          $parent_tids[] = 0;
+        }
+        else {
+          /** @var Term $parent */
+          foreach ($parents as $parent) {
+            $parent_tids[] = $parent->id();
+          }
+        }
+
         // Add hash data to the database.
         $data = $exported_terms[$term->id()];
-        $concept = $ppt->getConcept($project_id, $data['uri'], $this->skosProperties(), $data['ppLang']);
-        $concept->drupalLang = $data['drupalLang'];
-        $concept->ppLang = $data['ppLang'];
+        // The term is a concept scheme.
+        if ($settings['root_level'] == 'project' && $parent_tids == array(0)) {
+          // Create an array of parent IDs
+          $concept = [];
+          $schemes = $ppt->getConceptSchemes($project_id, $data['ppLang']);
+          foreach ($schemes as $scheme) {
+            if ($scheme['uri'] == $data['uri']) {
+              $concept = $scheme;
+            }
+          }
+        }
+        // The term is a concept.
+        else {
+          $concept = $ppt->getConcept($project_id, $data['uri'], $this->skosProperties(), $data['ppLang']);
+        }
+        if (!empty($concept)) {
+          $concept['drupalLang'] = $data['drupalLang'];
+          $concept['ppLang'] = $data['ppLang'];
 
-        $uri_lang = $this->getUri($concept);
-        $hash = $this->hash($concept);
-        $this->addHashData($term, $data['ppLang'], $uri_lang, $hash, $info['start_time']);
+          $uri_lang = $this->getUri($concept);
+          $hash = $this->hash($concept);
+          $this->addHashData($term, $data['ppLang'], $uri_lang, $hash, $info['start_time']);
 
-        $exported_terms[$term->id()]['hash'] = TRUE;
+          $exported_terms[$term->id()]['hash'] = TRUE;
+        }
         $context['results']['hash_update_processed']++;
       }
     }
@@ -654,9 +659,10 @@ class PPTaxonomyManager {
       unset($custom_fields[$normal_field]);
     }
 
+    $settings = $this->config->getConfig();
     $exported_terms = $context['results']['exported_terms'];
-    $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
-    $project_id = $this->config->getProjectId();
+    //$default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
+    $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
     /** @var Term $term */
     foreach ($terms as $term) {
       // Check if the term with the default language is already exported.
@@ -664,41 +670,70 @@ class PPTaxonomyManager {
         // Get the translated version of the taxonomy term.
         $term = $term->getTranslation($drupal_lang);
 
+        /** @var TermStorage $term_storage */
+        $term_storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+        $parents = $term_storage->loadParents($term->id());
+        $parent_tids = array();
+        if (empty($parents)) {
+          $parent_tids[] = 0;
+        }
+        else {
+          /** @var Term $parent */
+          foreach ($parents as $parent) {
+            $parent_tids[] = $parent->id();
+          }
+        }
+
         $uri = $exported_terms[$term->id()]['uri'];
         // Add pref, alt, hidden labels and definition.
         $ppt->addLiteral($project_id, $uri, 'preferredLabel', $term->getName(), $pp_lang);
         if (!empty($term->getDescription())) {
           $ppt->addLiteral($project_id, $uri, 'definition', $term->getDescription(), $pp_lang);
         }
-        $alt_label_values = $term->get('field_alt_labels')->getValue();
-        if (!empty($alt_label_values)) {
-          $alt_labels = explode(',', $alt_label_values[0]['value']);
-          foreach ($alt_labels as $alt_label) {
-            $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+        if ($settings['root_level'] == 'conceptscheme' || $parent_tids != array(0)) {
+          $alt_label_values = $term->get('field_alt_labels')->getValue();
+          if (!empty($alt_label_values)) {
+            $alt_labels = explode(',', $alt_label_values[0]['value']);
+            foreach ($alt_labels as $alt_label) {
+              $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+            }
           }
-        }
-        $hidden_label_values = $term->get('field_hidden_labels')->getValue();
-        if (!empty($hidden_label_values)) {
-          $hidden_labels = explode(',', $hidden_label_values[0]['value']);
-          foreach ($hidden_labels as $hidden_label) {
-            $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+          $hidden_label_values = $term->get('field_hidden_labels')->getValue();
+          if (!empty($hidden_label_values)) {
+            $hidden_labels = explode(',', $hidden_label_values[0]['value']);
+            foreach ($hidden_labels as $hidden_label) {
+              $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+            }
           }
-        }
-        if (!empty($custom_fields)) {
-          foreach ($custom_fields as $field_id => $field_schema) {
-            if (isset($term->{$field_id})) {
-              $custom_field_values = $term->{$field_id}->getValue();
-              if (!empty($custom_field_values)) {
-                $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
+          if (!empty($custom_fields)) {
+            foreach ($custom_fields as $field_id => $field_schema) {
+              if (isset($term->{$field_id})) {
+                $custom_field_values = $term->{$field_id}->getValue();
+                if (!empty($custom_field_values)) {
+                  $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
+                }
               }
             }
           }
         }
 
         // Add hash data to the database.
-        $concept = $ppt->getConcept($project_id, $uri, $this->skosProperties(), $pp_lang);
-        $concept->drupalLang = $drupal_lang;
-        $concept->ppLang = $pp_lang;
+        // The term is a concept scheme.
+        if ($settings['root_level'] == 'project' && $parent_tids == array(0)) {
+          $concept = [];
+          $schemes = $ppt->getConceptSchemes($project_id, $pp_lang);
+          foreach ($schemes as $scheme) {
+            if ($scheme['uri'] == $uri) {
+              $concept = $scheme;
+            }
+          }
+        }
+        // The term is a concept.
+        else {
+          $concept = $ppt->getConcept($project_id, $uri, $this->skosProperties(), $pp_lang);
+        }
+        $concept['drupalLang'] = $drupal_lang;
+        $concept['ppLang'] = $pp_lang;
 
         $uri_lang = $this->getUri($concept);
         $hash = $this->hash($concept);
@@ -712,25 +747,41 @@ class PPTaxonomyManager {
   /**
    * Creates a batch for updating all terms of a taxonomy.
    *
+   * @param string $update_type
+   *   The update type: sync, powertagging_taxonomy_update or import.
    * @param Vocabulary $vocabulary
    *   A Drupal taxonomy object.
-   * @param string $scheme_uri
-   *   A concept scheme URI
+   * @param string $root_uri
+   *   The URI of a concept scheme or the ID of a project
    * @param array $languages
    *   An array of languages:
    *    key = Drupal language
    *    value = PoolParty language.
    * @param int $concepts_per_request
    *   Count of concepts per http request.
+   *
+   * @throws \Exception
+   *   A regular exception in case of a operation-breaking error.
    */
-  public function updateTaxonomyTerms(Vocabulary $vocabulary, $scheme_uri, $languages, $concepts_per_request) {
+  public function updateTaxonomyTerms($update_type, Vocabulary $vocabulary, $root_uri, $languages, $concepts_per_request) {
     $start_time = time();
 
     // Configure the batch data.
+    switch ($update_type) {
+      case 'import':
+        $title = t('Import terms into taxonomy %name ...', array('%name' => $vocabulary->label()));
+        $init_message = t('Starting with the import of the taxonomy terms.');
+        break;
+
+      default:
+        $title = t('Updating taxonomy %name ...', array('%name' => $vocabulary->label()));
+        $init_message = t('Starting with the update of the taxonomy terms.');
+        break;
+    }
     $batch = array(
-      'title' => t('Updating taxonomy %name ...', array('%name' => $vocabulary->label())),
+      'title' => $title,
       'operations' => array(),
-      'init_message' => t('Starting with the update of the taxonomy terms.'),
+      'init_message' => $init_message,
       'progress_message' => t('Processed @current out of @total.'),
       'finished' => array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'updateTermsFinished'),
     );
@@ -740,26 +791,91 @@ class PPTaxonomyManager {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getApi('PPT');
 
-    $top_concept_uris = array();
+    $settings = $this->config->getConfig();
+    $top_term_uris = array();
     $concepts = array();
     $count = 0;
-    foreach ($languages as $drupal_lang => $pp_lang) {
-      $concepts[$pp_lang] = array();
-      $top_concepts = $ppt->getTopConcepts($this->config->getProjectId(), $scheme_uri, $skos_properties, $pp_lang);
-      foreach ($top_concepts as $top_concept) {
-        $top_concept_uris[] = $top_concept['uri'] . '@' . $pp_lang;
+    if ($settings['root_level'] == 'project') {
+      foreach ($languages as $drupal_lang => $pp_lang) {
+        $concepts[$pp_lang] = array();
+        $concept_schemes = $ppt->getConceptSchemes($root_uri, $pp_lang);
+        if (is_null($concept_schemes)) {
+          throw new \Exception('Error while fetching the concept schemes for project "' . $root_uri . '"');
+        }
+        foreach ($concept_schemes as $concept_scheme) {
+          // Get the "hasTopConcept" relations of the scheme.
+          $top_concepts = $ppt->getTopConcepts($root_uri, $concept_scheme['uri'], $skos_properties, $pp_lang);
+          $concept_scheme_children = array();
+          if (is_null($top_concepts)) {
+            throw new \Exception('Error while fetching the top concepts for URI "' . $concept_scheme['uri'] . '"');
+          }
+          elseif (is_array($top_concepts)) {
+            foreach ($top_concepts as $top_concept) {
+              $concept_scheme_children[] = $top_concept['uri'];
+            }
+          }
+
+          // Add the concept scheme itself.
+          $concept_scheme_array = array(
+            'uri' => $concept_scheme['uri'],
+            'prefLabel' => $concept_scheme['title'],
+            'narrowers' => $concept_scheme_children,
+            'drupalLang' => $drupal_lang,
+            'ppLang' => $pp_lang,
+          );
+          $concepts[$pp_lang][$this->getUri($concept_scheme_array)] = $concept_scheme_array;
+
+          $top_term_uris[] = $concept_scheme['uri'] . '@' . $pp_lang;
+          // Add the top concepts and concepts.
+          $tree = $ppt->getSubTree($root_uri, $concept_scheme['uri'], $skos_properties, $pp_lang);
+          if (is_null($tree)) {
+            throw new \Exception('Error while fetching the subtree for URI "' . $concept_scheme['uri'] . '"');
+          }
+          $tree_list = $this->tree2list($tree, $drupal_lang, $pp_lang);
+
+          // Add the fake broader relation to the concept scheme for all top
+          // concepts.
+          if (is_array($tree)) {
+            foreach ($tree_list as &$concept) {
+              if (in_array($concept['uri'], $concept_scheme_children)) {
+                $concept['broaders'] = array($concept_scheme['uri']);
+              }
+              unset($top_concept);
+            }
+          }
+          $concepts[$pp_lang] = array_merge($concepts[$pp_lang], $tree_list);
+          $count += count($tree_list);
+        }
       }
-      $tree = $ppt->getSubTree($this->config->getProjectId(), $scheme_uri, $skos_properties, $pp_lang);
-      $tree_list = $this->tree2list($tree, $drupal_lang, $pp_lang);
-      $concepts[$pp_lang] = array_merge($concepts[$pp_lang], $tree_list);
-      $count += count($tree_list);
+    }
+    else {
+      foreach ($languages as $drupal_lang => $pp_lang) {
+        $concepts[$pp_lang] = array();
+        $top_concepts = $ppt->getTopConcepts($this->config->getProjectId(), $root_uri, $skos_properties, $pp_lang);
+        if (is_null($top_concepts)) {
+          throw new \Exception('Error while fetching the top concepts for URI "' . $root_uri . '"');
+        }
+        elseif (is_array($top_concepts)) {
+          foreach ($top_concepts as $top_concept) {
+            $top_term_uris[] = $top_concept['uri'] . '@' . $pp_lang;
+          }
+        }
+        // Includes top concepts and concepts.
+        $tree = $ppt->getSubTree($this->config->getProjectId(), $root_uri, $skos_properties, $pp_lang);
+        if (is_null($tree)) {
+          throw new \Exception('Error while fetching the subtree for URI "' . $root_uri . '"');
+        }
+        $tree_list = $this->tree2list($tree, $drupal_lang, $pp_lang);
+        $concepts[$pp_lang] = array_merge($concepts[$pp_lang], $tree_list);
+        $count += count($tree_list);
+      }
     }
 
     // Set additional data.
     $info = array(
       'total' => $count,
       'start_time' => $start_time,
-      'top_concept_uris' => $top_concept_uris,
+      'top_concept_uris' => $top_term_uris,
     );
 
     // Enable the translation for the taxonomy if required.
@@ -895,10 +1011,15 @@ class PPTaxonomyManager {
         $result = $query->execute();
         $tid = reset($result);
 
+        $term_exists = FALSE;
         if ($tid) {
           $term = Term::load($tid);
+          if ($term !== FALSE) {
+            $term_exists = TRUE;
+          }
         }
-        else {
+
+        if (!$term_exists) {
           $term = Term::create(array('vid' => $vid));
         }
 
@@ -1138,10 +1259,12 @@ class PPTaxonomyManager {
       $term->setDescription(implode(' ', $concept['definitions']));
     }
     if (isset($concept['altLabels'])) {
-      $term->get('field_alt_labels')->setValue(implode(',', $concept['altLabels']));
+      // Remove multibyte-characters.
+      $term->get('field_alt_labels')->setValue(preg_replace('/[[:^print:]]/', "", implode(',', $concept['altLabels'])));
     }
     if (isset($concept['hiddenLabels'])) {
-      $term->get('field_hidden_labels')->setValue(implode(',', $concept['hiddenLabels']));
+      // Remove multibyte-characters.
+      $term->get('field_hidden_labels')->setValue(preg_replace('/[[:^print:]]/', "", implode(',', $concept['hiddenLabels'])));
     }
 
     // Add data for custom fields.
@@ -1256,8 +1379,8 @@ class PPTaxonomyManager {
   /**
    * Creates a hash code from a concept $concept.
    *
-   * @param object $concept
-   *   A concept object from PoolParty.
+   * @param array $concept
+   *   An associative concept array from PoolParty.
    *
    * @return string
    *   The hash code.
@@ -1289,8 +1412,8 @@ class PPTaxonomyManager {
   /**
    * Returns the URI with language of a concept.
    *
-   * @param object $concept
-   *   The object of a concept.
+   * @param array $concept
+   *   The associative array of a concept.
    *
    * @return string
    *   The uri with the language (e.g., http://a.concept.uri/1234@en).
@@ -1431,5 +1554,135 @@ class PPTaxonomyManager {
     }
 
     return $languages;
+  }
+
+  /**
+   * Get a list of project IDs that are already used by PoolParty Taxonomy
+   * Manager configurations.
+   *
+   * @param string $connection_url
+   *   optional: a URL to filter the configurations with.
+   * @param array $ignored_config_ids
+   *   optional: An array of IDs of PoolParty Taxonomy Manager configurations
+   *   to ignore in the checks.
+   *
+   * @return array
+   *   An associative array of used project IDs (project ID => config title).
+   */
+  public static function getUsedProjects($connection_url = NULL, $ignored_config_ids = array()) {
+    $project_ids = array();
+    $existing_configs = PPTaxonomyManagerConfig::loadMultiple();
+    /** @var PPTaxonomyManagerConfig $existing_config */
+    foreach ($existing_configs as $existing_config) {
+      if (!in_array($existing_config->id(), $ignored_config_ids) && (is_null($connection_url) || $connection_url == $existing_config->getConnection()->getUrl())) {
+        $existing_config_settings = $existing_config->getConfig();
+        if ($existing_config_settings['root_level'] == 'conceptscheme') {
+          $project_ids[$existing_config->getProjectId()] = $existing_config->getTitle();
+        }
+        else {
+          foreach (array_values($existing_config_settings['taxonomies']) as $project_id) {
+            $project_ids[$project_id] = $existing_config->getTitle();
+          }
+        }
+      }
+    }
+
+    return $project_ids;
+  }
+
+  /**
+   * Check if any of the synced Drupal taxonomies was changed in PoolParty.
+   *
+   * @param PPTaxonomyManagerConfig $pp_taxonomy_manager_config
+   *   Optional; A specific Taxonomy Manager configuration to check for PoolParty
+   *   updates. If none is given, all Taxonomy Manager configurations get checked.
+   * @param string $project_id
+   *   Optional; The ID of the PoolParty project to check. If none is given all
+   *   relevant PP projects are checked.
+   * @param int $vocabulary_id
+   *   Optional; The ID of the Drupal taxonomy to use for the check. If none is
+   *   given the last log for the first vocabulary found is used for the check.
+   *
+   * @return string[]
+   *   Array of notification strings.
+   */
+  public static function checkPPChanges($pp_taxonomy_manager_config = NULL, $project_id = NULL, $vocabulary_id = NULL) {
+    $notifications = array();
+
+    if (!is_null($pp_taxonomy_manager_config)) {
+      $configs = array($pp_taxonomy_manager_config);
+    }
+    else {
+      $configs = PPTaxonomyManagerConfig::loadMultiple();
+    }
+
+    /** @var PPTaxonomyManagerConfig $config */
+    foreach ($configs as $config) {
+      $settings = $config->getConfig();
+
+      $project_ids_to_check = array();
+      /** @var SemanticConnectorPPTApi $ppt_api */
+      $ppt_api = $config->getConnection()
+        ->getApi('PPT');
+
+      $projects = $ppt_api->getProjects();
+      foreach ($projects as $project) {
+        if ($settings['root_level'] == 'project') {
+          foreach ($settings['taxonomies'] as $vid => $taxonomy_project_id) {
+            if ($project['id'] == $taxonomy_project_id && (is_null($project_id) || $project_id == $project['id']) && (is_null($vocabulary_id) || $vocabulary_id == $vid)) {
+              $project_ids_to_check[$vid] = $project['id'];
+            }
+          }
+        }
+        else {
+          if ($project['id'] == $config->getProjectId() && (is_null($project_id) || $project_id == $project['id'])) {
+            foreach ($settings['taxonomies'] as $vid => $taxonomy_scheme_id) {
+              if (is_null($vocabulary_id) || $vocabulary_id == $vid) {
+                $project_ids_to_check[$vid] = $project['id'];
+              }
+            }
+          }
+        }
+      }
+      $project_ids_to_check = array_unique($project_ids_to_check);
+
+      if (!empty($project_ids_to_check)) {
+        foreach ($project_ids_to_check as $vid => $project_id_to_check) {
+          $vocabulary = Vocabulary::load($vid);
+
+          if ($vocabulary !== FALSE) {
+            $taxonomy_title = $vocabulary->label();
+            $last_log = $config->getLastLog($vid);
+
+            $history = $config->getConnection()
+              ->getApi('PPT')
+              ->getHistory($project_id_to_check, $last_log['end_time'], NULL, array(
+                'resourceChangeAddition',
+                'resourceChangeRemoval',
+                'resourceChangeUpdate',
+                'addRelation',
+                'removeRelation',
+                'addLiteral',
+                'removeLiteral',
+                'updateLiteral'
+              ));
+
+            if (!empty($history)) {
+              // Get the project title.
+              $project_title = '';
+              foreach ($projects as $project) {
+                if ($project['id'] == $project_id_to_check) {
+                  $project_title = $project['title'];
+                }
+              }
+
+              $notifications[] = t('PoolParty project "%ppproject" was updated and Drupal vocabulary "%vocname" needs to be synced.', array('%ppproject' => $project_title, '%vocname' => $taxonomy_title)) . (\Drupal::currentUser()->hasPermission('administer pp taxonomy manager') ? ' ' . Link::fromTextAndUrl('sync now', Url::fromRoute('entity.pp_taxonomy_manager.sync', array('config' => $config->id(), 'taxonomy' => $vid)))->toString() : '');
+            }
+          }
+        }
+      }
+    }
+
+    return $notifications;
   }
 }

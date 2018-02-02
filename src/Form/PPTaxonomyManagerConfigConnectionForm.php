@@ -5,11 +5,13 @@
  */
 
 namespace Drupal\pp_taxonomy_manager\Form;
+use Drupal\Component\Render\FormattableMarkup;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Entity\EntityForm;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
+use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
 use Drupal\semantic_connector\Entity\SemanticConnectorPPServerConnection;
 use Drupal\semantic_connector\SemanticConnector;
 
@@ -166,10 +168,32 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
       '#markup' => $markup,
     );
 
+    // Container: Level settings.
+    $form['level_settings'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('2. Select the taxonomy root level'),
+    );
+
+    $settings = $entity->getConfig();
+    $form['level_settings']['root_level'] = array(
+      '#type' => 'radios',
+      '#options' => array(
+        'project' => t('Every taxonomy becomes a %rootlevel.', array('%rootlevel' => new FormattableMarkup('<b>' . t('PoolParty Project') . '</b>', array()))),
+        'conceptscheme' => t('Every taxonomy becomes a %rootlevel in a single project.', array('%rootlevel' => new FormattableMarkup('<b>' . t('Concept Scheme') . '</b>', array()))),
+      ),
+      '#default_value' => $settings['root_level'],
+      '#disabled' => !$is_new,
+    );
+
     // Container: Project loading.
     $form['project_load'] = array(
       '#type' => 'fieldset',
-      '#title' => t('2. Load the projects'),
+      '#title' => t('3. Load the projects'),
+      '#states' => array(
+        'visible' => array(
+          ':input[name="root_level"]' => array('value' => 'conceptscheme'),
+        ),
+      ),
     );
 
     $form['project_load']['load_projects'] = array(
@@ -189,16 +213,26 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
     // Container: Project selection.
     $form['project_select'] = array(
       '#type' => 'fieldset',
-      '#title' => t('3. Select the project to use'),
+      '#title' => t('4. Select the project to use'),
       '#description' => t('Note: In case this list is still empty after clicking the "Load projects" button make sure that a connection to the PoolParty server can be established and check the rights of your selected user inside PoolParty.'),
+      '#states' => array(
+        'visible' => array(
+          ':input[name="root_level"]' => array('value' => 'conceptscheme'),
+        ),
+      ),
     );
 
     // Get the project options for the currently configured PoolParty server.
     $project_options = array();
     if (!$is_new) {
       $projects = $connection->getApi('PPT')->getProjects();
+      $skip_projects = PPTaxonomyManager::getUsedProjects($connection->getUrl(), array($entity->id()));
       foreach ($projects as $project) {
         $project_options[$project['id']] = $project['title'];
+        // If the project is not used yet, add it to the list.
+        if (!isset($skip_projects[$project['id']])) {
+          $project_options[$project['id']] = $project['title'];
+        }
       }
     }
     // configuration set admin page.
@@ -244,25 +278,44 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
         $form_state->setErrorByName('title', t('Name field is required.'));
       }
 
-      // A project needs to be selected.
-      if (empty($form_state->getValue('project'))) {
-        $form_state->setErrorByName('project', t('Please select a project.'));
+      if (!empty($form_state->getValue('url')) && UrlHelper::isValid($form_state->getValue('url'), TRUE)) {
+        // Create a new connection (without saving) with the current form data.
+        $connection = SemanticConnector::getConnection('pp_server');
+        $connection->setUrl($form_state['values']['url']);
+        $connection->setCredentials(array(
+          'username' => $form_state->getValue('username'),
+          'password' => $form_state->getValue('password'),
+        ));
+        // Check if the connection can be reached.
+        if (!$connection->available()) {
+          $form_state->setErrorByName('url', t('The selected connection can not be reached.'));
+        }
+
+        $root_level = $form_state->getValue('root_level');
+        if ($root_level != 'project') {
+          // A project needs to be selected.
+          if (empty($form_state->getValue('project'))) {
+            $form_state->setErrorByName('project', t('Please select a project.'));
+          }
+          // And it has to be a valid project (one that is available on the connected
+          // PoolParty server).
+          else {
+            $projects = $connection->getApi('PPT')->getProjects();
+            $project_is_valid = FALSE;
+            foreach ($projects as $project) {
+              if ($project->id == $form_state->getValue('project')) {
+                $project_is_valid = TRUE;
+                break;
+              }
+            }
+            if (!$project_is_valid) {
+              $form_state->setErrorByName('project', t('The selected project is not available on the given PoolParty server configuration.'));
+            }
+          }
+        }
       }
-      // And it has to be a valid project (one that is connected to a
-      // PoolParty Taxonomy Manager server).
       else {
-        if (!empty($form_state->getValue('url')) && UrlHelper::isValid($form_state->getValue('url'), TRUE)) {
-          // Create a new connection (without saving) with the current form data.
-          $connection = SemanticConnector::getConnection('pp_server');
-          $connection->setUrl($form_state['values']['url']);
-          $connection->setCredentials(array(
-            'username' => $form_state->getValue('username'),
-            'password' => $form_state->getValue('password'),
-          ));
-        }
-        else {
-          $form_state->setErrorByName('url', t('The field URL must be a valid URL.'));
-        }
+        $form_state->setErrorByName('url', t('The field URL must be a valid URL.'));
       }
     }
   }
@@ -274,10 +327,17 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
     /** @var PPTaxonomyManagerConfig $entity */
     $entity = $this->entity;
     $is_new = !$entity->getOriginalId();
+    $root_level = $form_state->getValue('root_level');
     if ($is_new) {
       // Configuration entities need an ID manually set.
       $entity->set('id', SemanticConnector::createUniqueEntityMachineName('pp_taxonomy_manager', $entity->get('title')));
       drupal_set_message(t('PoolParty Taxonomy Manager configuration %title has been created.', array('%title' => $entity->get('title'))));
+
+      // Create the initial config.
+      $settings = array(
+        'root_level' => $root_level,
+      );
+      $entity->setConfig($settings);
     }
     else {
       drupal_set_message(t('Updated PoolParty Taxonomy Manager configuration %title.',
@@ -292,7 +352,13 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
     ));
 
     $entity->set('connection_id', $connection->id());
-    $entity->set('project_id', $form_state->getValue('project'));
+    // Set the project ID.
+    if ($root_level == 'project') {
+      $entity->setProjectId(NULL);
+    }
+    else {
+      $entity->setProjectId($form_state->getValue('project'));
+    }
     $entity->save();
 
     $form_state->setRedirectUrl(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $entity->id())));
@@ -361,6 +427,8 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
    */
   public function getProjects(array &$form, FormStateInterface $form_state) {
     $projects_element = $form['project_select']['project'];
+    $entity = $this->entity;
+    $is_new = !$entity->getOriginalId();
 
     $project_options = array();
     if (!empty($form_state->getValue('url')) && UrlHelper::isValid($form_state->getValue('url'), TRUE)) {
@@ -371,9 +439,14 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
         'username' => $form_state->getValue('username'),
         'password' => $form_state->getValue('password'),
       ));
+
+      $skip_projects = PPTaxonomyManager::getUsedProjects($form_state->getValue('url'), (!$is_new ? $entity->id() : array()));
       $projects = $connection->getApi('PPT')->getProjects();
       foreach ($projects as $project) {
-        $project_options[$project['id']] = $project['title'];
+        // If the project is not used yet, add it to the list.
+        if (!isset($skip_projects[$project['id']])) {
+          $project_options[$project['id']] = $project['title'];
+        }
       }
     }
 
