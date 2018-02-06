@@ -67,8 +67,8 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     }
 
     // Check if the taxonomy is connected with a concept scheme.
-    $configuration = $config->getConfig();
-    if (isset($configuration['taxonomies'][$taxonomy->id()])) {
+    $settings = $config->getConfig();
+    if (isset($settings['taxonomies'][$taxonomy->id()])) {
       drupal_set_message(t('The taxonomy %taxonomy is already a completed taxonomy, please use the normal syncronization process.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
@@ -125,7 +125,7 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     $form['cancel'] = array(
       '#type' => 'link',
       '#title' => t('Cancel'),
-      '#href' => 'admin/config/semantic-drupal/pp-taxonomy-manager/' . $config->id(),
+      '#url' => Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id())),
       '#suffix' => '</div>',
     );
 
@@ -189,7 +189,11 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     $manager->addConnection($taxonomy->id(), $powertagging_config->getProjectId(), $languages);
 
     // Update all taxonomy terms.
-    $manager->updateTaxonomyTerms('powertagging_taxonomy_update', $taxonomy, $powertagging_config->getProjectId(), $languages, $concepts_per_request);
+    try {
+      $manager->updateTaxonomyTerms('powertagging_taxonomy_update', $taxonomy, $powertagging_config->getProjectId(), $languages, $concepts_per_request);
+    } catch (\Exception $e) {
+      drupal_set_message($e->getMessage(), 'error');
+    }
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }
 }

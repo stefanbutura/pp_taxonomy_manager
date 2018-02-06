@@ -56,8 +56,7 @@ class PPTaxonomyManagerConfigListBuilder extends ConfigEntityListBuilder
     $row['project'] = $project_label;
 
     // Create the list of the interconnected taxonomies.
-    $configuration = $entity->getConfig();
-    $vocabularies = Vocabulary::loadMultiple(array_keys($configuration['taxonomies']));
+    $vocabularies = Vocabulary::loadMultiple(array_keys($settings['taxonomies']));
     $taxonomies = array();
     /** @var Vocabulary $vocabulary */
     foreach ($vocabularies as $vocabulary) {

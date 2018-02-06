@@ -3,9 +3,20 @@
  * Provides some configurations for the tablesorter.
  */
 
+var pp_taxonomy_manager_table_interval;
+
 (function ($) {
   Drupal.behaviors.pp_taxonomy_manager  = {
     attach: function () {
+
+      // Show/Hide additional fields if a checkbox is enabled/disabled
+      $("#pp-taxonomy-manager-taxonomy-export-form, #pp-taxonomy-manager-taxonomy-import-form").bind("state:visible", function(e) {
+        if(e.trigger) {
+          $(e.target).closest(".form-item, .form-submit, .form-wrapper")[e.value ? "slideDown" : "slideUp"]();
+          e.stopPropagation();
+        }
+      });
+
       // Make the project tables sortable if tablesorter is available.
       if ($.isFunction($.fn.tablesorter)) {
         $("table#pp-taxonomy-manager-configurations-table").tablesorter({
@@ -20,6 +31,17 @@
           }
         });
 
+        $("table#pp-taxonomy-manager-synced-table").tablesorter({
+          widgets: ["zebra"],
+          widgetOptions: {
+            zebra: ["odd", "even"]
+          },
+          sortList: [[1, 1], [0, 0]],
+          headers: {
+            3: { sorter: "text" }
+          }
+        });
+
         $("table#pp-taxonomy-manager-interconnection-table").tablesorter({
           widgets: ["zebra"],
           widgetOptions: {
@@ -28,13 +50,12 @@
           sortList: [[1, 1], [0, 0]]
         });
 
-        $("table#pp-taxonomy-manager-powertagging-table").tablesorter({
-          widgets: ["zebra"],
-          widgetOptions: {
-            zebra: ["odd", "even"]
-          },
-          sortList: [[0, 0]]
-        });
+        pp_taxonomy_manager_table_interval = setInterval(function(){
+          if($("table#pp-taxonomy-manager-interconnection-table").is(':visible')) {
+            $("table#pp-taxonomy-manager-interconnection-table").trigger('applyWidgets');
+            clearInterval(pp_taxonomy_manager_table_interval);
+          }
+        }, 50);
       }
 
       if ($("form#pp-taxonomy-manager-add-form").length > 0) {

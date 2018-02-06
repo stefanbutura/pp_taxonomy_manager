@@ -19,8 +19,8 @@ function pp_taxonomy_manager_taxonomy_vocabulary_delete(\Drupal\taxonomy\Entity\
   // Disconnect all PP Taxonomy manager configurations from this vocabulary.
   /** @var PPTaxonomyManagerConfig $config */
   foreach ($configs as $config) {
-    $configuration = $config->getConfig();
-    if (isset($configuration['taxonomies'][$vocabulary->id()])) {
+    $settings = $config->getConfig();
+    if (isset($settings['taxonomies'][$vocabulary->id()])) {
       $manager = PPTaxonomyManager::getInstance($config);
 
       // Delete the connection.
@@ -36,4 +36,19 @@ function pp_taxonomy_manager_taxonomy_vocabulary_delete(\Drupal\taxonomy\Entity\
       )));
     }
   }
+}
+
+/**
+ * Implements hook_semantic_connector_global_notification_actions().
+ */
+function pp_taxonomy_manager_semantic_connector_global_notification_actions() {
+  return array(
+    array(
+      'id' => 'pp_taxonomy_manager_pp_changes',
+      'title' => t('Required taxonomy synchronizations'),
+      'description' => t("Notify about changes inside PoolParty for syncronized Drupal taxonomies to keep them up to date."),
+      'default_value' => TRUE,
+      'callback' => ['Drupal\pp_taxonomy_manager\PPTaxonomyManager', 'checkPPChanges'],
+    )
+  );
 }

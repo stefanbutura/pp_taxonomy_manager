@@ -5,9 +5,11 @@
  */
 
 namespace Drupal\pp_taxonomy_manager\Form;
+use Drupal\Component\Render\FormattableMarkup;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
+use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
 use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
 use Drupal\semantic_connector\Entity\SemanticConnectorPPServerConnection;
 use Drupal\semantic_connector\SemanticConnector;
@@ -39,15 +41,15 @@ class PPTaxonomyManagerConfigFixedConnectionAddForm extends FormBase {
     }
     else {
       $pp_config = $connection->getConfig();
-      $project = NULL;
+      $project_title = '';
       foreach ($pp_config['projects'] as $config_project) {
         if ($config_project['id'] == $project_id) {
-          $project = $config_project;
+          $project_title = $config_project['title'];
           break;
         }
       }
 
-      if (is_null($project)) {
+      if (empty($project_title)) {
         drupal_set_message(t('The given project ID could not be found on the PoolParty server.'), 'error');
         $form_state->setRedirectUrl(Url::fromRoute('semantic_connector.overview'));
       }
@@ -55,25 +57,44 @@ class PPTaxonomyManagerConfigFixedConnectionAddForm extends FormBase {
         $form_state->set('connection_id', $connection->id());
         $form_state->set('project_id', $project_id);
 
-        $form['question'] = array(
-          '#markup' => '<p>' . t('Are you sure you want to create the PoolParty Taxonomy Manager configuration?') . '<br />' .
-            t('This action cannot be undone.') . '</p>',
-        );
-        $form['connection_details'] = array(
-          '#markup' => 'Selected PoolParty server: <b>' . $connection->getTitle() . '</b><br />Selected project: <b>' . $project['title'] . '</b>',
+        $form['description'] = array(
+          '#markup' => t('Selected PoolParty server: %server', array(
+            '%server' => new FormattableMarkup('<b>' . $connection->getTitle() . '</b>', array()),
+          )),
         );
 
         $form['title'] = array(
           '#type' => 'textfield',
           '#title' => $this->t('Title of the new config'),
           '#maxlength' => 255,
-          '#default_value' => 'PoolParty Taxonomy Manager config for ' . $connection->getTitle() . ' (' . $project['title'] . ')',
+          '#default_value' => 'PoolParty Taxonomy Manager config for ' . $connection->getTitle() . ' (' . $project_title . ')',
           '#required' => TRUE,
         );
 
-        $form['create'] = array(
+        // Container: Level settings.
+        $form['level_settings'] = array(
+          '#type' => 'fieldset',
+          '#title' => t('Select the taxonomy root level'),
+        );
+        $form['level_settings']['root_level'] = array(
+          '#type' => 'radios',
+          '#options' => array(
+            'project' => t('Every taxonomy becomes a %rootlevel.', array('%rootlevel' => new FormattableMarkup('<b>' . t('PoolParty Project') . '</b>', array()))),
+            'conceptscheme' => t('Every taxonomy becomes a %rootlevel in project "%projectname".', array('%rootlevel' => new FormattableMarkup('<b>' . t('Concept Scheme') . '</b>', array()), '%projectname' => $project_title)),
+          ),
+          '#default_value' => 'conceptscheme',
+        );
+
+        $form['save'] = array(
           '#type' => 'submit',
           '#value' => t('Create configuration'),
+          '#prefix' => '<div class="admin-form-submit-buttons" style="margin-top: 40px;">',
+        );
+        $form['cancel'] = array(
+          '#type' => 'link',
+          '#title' => t('Cancel'),
+          '#url' => Url::fromRoute('entity.pp_taxonomy_manager.collection'),
+          '#suffix' => '</div>',
         );
       }
     }
@@ -97,11 +118,16 @@ class PPTaxonomyManagerConfigFixedConnectionAddForm extends FormBase {
     $pp_config = $connection->getConfig();
     foreach ($pp_config['projects'] as $project) {
       if ($project['id'] == $project_id) {
+        $root_level = $form_state->getValue('root_level');
+        $settings = PPTaxonomyManagerConfig::getDefaultConfig();
+        $settings['root_level'] = $root_level;
+
         // Set all the required variables and save the configuration.
         $new_graphsearch_config = PPTaxonomyManager::createConfiguration(
           $form_state->getValue('title'),
-          $project_id,
-          $connection->id()
+          ($root_level == 'conceptscheme') ? $project_id : NULL,
+          $connection->id(),
+          $settings
         );
 
         drupal_set_message(t('PoolParty Taxonomy Manager configuration "%title" has been created.', array('%title' => $new_graphsearch_config->getTitle())));

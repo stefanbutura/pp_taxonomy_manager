@@ -62,8 +62,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
     }
 
     // Check if the taxonomy is connected with a concept scheme.
-    $configuration = $config->getConfig();
-    if (isset($configuration['taxonomies'][$taxonomy->id()])) {
+    if (isset($settings['taxonomies'][$taxonomy->id()])) {
       drupal_set_message(t('The taxonomy %taxonomy is already connected, please select another one.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
@@ -129,9 +128,10 @@ class PPTaxonomyManagerExportForm extends FormBase {
     }
 
     $form['languages'] = array(
-      '#type' => 'item',
-      '#title' => t('Map the Drupal languages with the PoolParty project languages'),
-      '#description' => count($available_languages) > 1 ? t('The term-translations of the non-selected languages are not exported.') : '',
+      '#type' => 'details',
+      '#title' => t('Language Mapping'),
+      '#description' => t('Map the Drupal languages with the PoolParty project languages.') . (count($enabled_languages) > 1 ? '<br />' . t('The term-translations of the non-selected languages are not exported.') : ''),
+      '#open' => TRUE,
       '#tree' => TRUE,
     );
 
@@ -200,6 +200,11 @@ class PPTaxonomyManagerExportForm extends FormBase {
    * {@inheritdoc}
    */
   public function validateForm(array &$form, FormStateInterface $form_state) {
+    // Ignore empty languages.
+    if (!empty($form_state->getValue('languages'))) {
+      $form_state->setValue('languages', array_filter($form_state->getValue('languages')));
+    }
+
     $values = $form_state->getValues();
 
     if (!empty($values['project_names']) && in_array($values['concept_scheme_title'], $values['project_names'])) {
@@ -249,11 +254,17 @@ class PPTaxonomyManagerExportForm extends FormBase {
       $root_uri = $manager->createProject($taxonomy, $values['concept_scheme_title'], $values['default_language'], array_values($values['languages']));
     }
 
-    // Connect the taxonomy with the new concept scheme / project.
-    $manager->addConnection($taxonomy->id(), $root_uri, $languages);
+    if ($root_uri !== FALSE) {
+      // Connect the taxonomy with the new concept scheme / project.
+      $manager->addConnection($taxonomy->id(), $root_uri, $languages);
 
-    // Export all taxonomy terms.
-    $manager->exportTaxonomyTerms($taxonomy, $root_uri, $languages, $terms_per_request);
+      // Export all taxonomy terms.
+      $manager->exportTaxonomyTerms($taxonomy, $root_uri, $languages, $terms_per_request);
+    }
+    // The project could not be created.
+    else {
+      drupal_set_message(t('There was an error during the creation of the project.'), 'error');
+    }
 
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }

@@ -48,8 +48,7 @@ class PPTaxonomyManagerDisconnectForm extends FormBase {
     }
 
     // Check if the taxonomy is connected with a concept scheme.
-    $configuration = $config->getConfig();
-    if (!isset($configuration['taxonomies'][$taxonomy->id()])) {
+    if (!isset($settings['taxonomies'][$taxonomy->id()])) {
       drupal_set_message(t('The taxonomy %taxonomy is not connected, please export the taxonomy first.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }

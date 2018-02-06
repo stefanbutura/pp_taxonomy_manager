@@ -379,11 +379,17 @@ class PPTaxonomyManager {
     // Set the export operations.
     for ($i = 0; $i < $count; $i += $terms_per_request) {
       $terms = array_slice($tree, $i, $terms_per_request);
+      $tids = array();
+      /** @var Term $term */
+      foreach ($terms as $term) {
+        $tids[] = $term->id();
+      }
+
       $batch['operations'][] = array(
         array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'exportTerms'),
         array(
           $this,
-          $terms,
+          $tids,
           $default_language,
           $languages[$default_language],
           $root_uri,
@@ -395,9 +401,19 @@ class PPTaxonomyManager {
     // Set the update hash table operations after the export of all terms.
     for ($i = 0; $i < $count; $i += $terms_per_request) {
       $terms = array_slice($tree, $i, $terms_per_request);
+      $tids = array();
+      /** @var Term $term */
+      foreach ($terms as $term) {
+        $tids[] = $term->id();
+      }
+
       $batch['operations'][] = array(
         array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'updateTermHashes'),
-        array($this, $terms, $info),
+        array(
+          $this,
+          $tids,
+          $info
+        ),
       );
     }
 
@@ -405,17 +421,29 @@ class PPTaxonomyManager {
     unset($languages[$default_language]);
     if (!empty($languages)) {
       foreach ($languages as $drupal_lang => $pp_lang) {
-        /*$count = count($tree);
+        $count = count($tree);
         $info = array(
           'total' => $count,
           'start_time' => $start_time,
-        );*/
+        );
 
         for ($i = 0; $i < $count; $i += $terms_per_request) {
           $terms = array_slice($tree, $i, $terms_per_request);
+          $tids = array();
+          /** @var Term $term */
+          foreach ($terms as $term) {
+            $tids[] = $term->id();
+          }
+
           $batch['operations'][] = array(
             array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'exportTermTranslations'),
-            array($this, $terms, $drupal_lang, $pp_lang, $info),
+            array(
+              $this,
+              $tids,
+              $drupal_lang,
+              $pp_lang,
+              $info
+            ),
           );
         }
       }
@@ -424,7 +452,11 @@ class PPTaxonomyManager {
     // Set the log operation.
     $batch['operations'][] = array(
       array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'saveVocabularyLog'),
-      array($this, $vocabulary->id(), $info),
+      array(
+        $this,
+        $vocabulary->id(),
+        $info
+      ),
     );
 
     // Start the batch.
@@ -434,8 +466,8 @@ class PPTaxonomyManager {
   /**
    * Batch process method for exporting taxonomy terms into a PoolParty server.
    *
-   * @param Term[] $terms
-   *   The taxonomy terms that are to be exported.
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms that are to be exported.
    * @param string $drupal_lang
    *   The language of the taxonomy terms that are to be exported.
    * @param string $pp_lang
@@ -443,7 +475,7 @@ class PPTaxonomyManager {
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public function exportBatch(array $terms, $drupal_lang, $pp_lang, array &$context) {
+  public function exportBatch(array $tids, $drupal_lang, $pp_lang, array &$context) {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
@@ -461,6 +493,8 @@ class PPTaxonomyManager {
     $settings = $this->config->getConfig();
     $exported_terms = &$context['results']['exported_terms'];
     $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
+
+    $terms = Term::loadMultiple($tids);
     /** @var Term $term */
     foreach ($terms as $term) {
       // Create an array of parent IDs
@@ -493,13 +527,18 @@ class PPTaxonomyManager {
                 // Add definition, alt labels, hidden labels and custom properties
                 // if required.
                 if (!empty($term->getDescription())) {
-                  $ppt->addLiteral($project_id, $uri, 'definition', $term->getDescription(), $pp_lang);
+                  $raw_description = str_replace(array("\r", "\n"), '', strip_tags($term->getDescription()));
+                  if (!empty($raw_description)) {
+                    $ppt->addLiteral($project_id, $uri, 'definition', $raw_description, $pp_lang);
+                  }
                 }
                 $alt_label_values = $term->get('field_alt_labels')->getValue();
                 if (!empty($alt_label_values)) {
                   $alt_labels = explode(',', $alt_label_values[0]['value']);
                   foreach ($alt_labels as $alt_label) {
-                    $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+                    if (!empty($alt_label)) {
+                      $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+                    }
                   }
                 }
                 $hidden_label_values = $term->get('field_hidden_labels')
@@ -507,14 +546,16 @@ class PPTaxonomyManager {
                 if (!empty($hidden_label_values)) {
                   $hidden_labels = explode(',', $hidden_label_values[0]['value']);
                   foreach ($hidden_labels as $hidden_label) {
-                    $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+                    if (!empty($hidden_label)) {
+                      $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+                    }
                   }
                 }
                 if (!empty($custom_fields)) {
                   foreach ($custom_fields as $field_id => $field_schema) {
                     if (isset($term->{$field_id})) {
                       $custom_field_values = $term->{$field_id}->getValue();
-                      if (!empty($custom_field_values)) {
+                      if (!empty($custom_field_values) && !empty($custom_field_values[0]['value'])) {
                         $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
                       }
                     }
@@ -541,7 +582,7 @@ class PPTaxonomyManager {
             }
             // Add additional parents.
             else {
-              $relation_type = ($settings['root_level'] != 'project' || $parent_tid != 0) ? 'broader' : 'topConceptOf';
+              $relation_type = ($settings['root_level'] != 'project' || !in_array(0, $exported_terms[$parent_tid]['parents'])) ? 'broader' : 'topConceptOf';
               $uri = $exported_terms[$term->id()]['uri'];
               $ppt->addRelation($project_id, $uri, $exported_terms[$parent_tid]['uri'], $relation_type);
               $exported_terms[$term->id()]['parents'][] = $parent_tid;
@@ -552,7 +593,7 @@ class PPTaxonomyManager {
       // Add missing parents to the concept.
       else {
         foreach ($parent_tids as $parent_tid) {
-          $relation_type = ($settings['root_level'] != 'project' || $parent_tid != 0) ? 'broader' : 'topConceptOf';
+          $relation_type = ($settings['root_level'] != 'project' || !in_array(0, $exported_terms[$parent_tid]['parents'])) ? 'broader' : 'topConceptOf';
           if (isset($exported_terms[$parent_tid]) && !in_array($parent_tid, $exported_terms[$term->id()]['parents'])) {
             $uri = $exported_terms[$term->id()]['uri'];
             $ppt->addRelation($project_id, $uri, $exported_terms[$parent_tid]['uri'], $relation_type);
@@ -567,20 +608,22 @@ class PPTaxonomyManager {
   /**
    * Batch process function for updating the hash table after the export.
    *
-   * @param Term[] $terms
-   *   The taxonomy terms that are to be exported.
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms that are to be exported.
    * @param array $info
    *   An associative array of information about the batch process.
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public function updateHashBatch(array $terms, array $info, array &$context) {
+  public function updateHashBatch(array $tids, array $info, array &$context) {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
     $settings = $this->config->getConfig();
     $exported_terms = &$context['results']['exported_terms'];
-    $project_id = $this->config->getProjectId();
+    $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
+
+    $terms = Term::loadMultiple($tids);
     /** @var Term $term */
     foreach ($terms as $term) {
       if (isset($exported_terms[$term->id()]) && !$exported_terms[$term->id()]['hash']) {
@@ -633,8 +676,8 @@ class PPTaxonomyManager {
   /**
    * Batch process method for exporting taxonomy terms into a PoolParty server.
    *
-   * @param Term[] $terms
-   *   The taxonomy terms that are to be exported.
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms that are to be exported.
    * @param string $drupal_lang
    *   The language of the taxonomy terms that are to be exported.
    * @param string $pp_lang
@@ -644,7 +687,7 @@ class PPTaxonomyManager {
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public function exportTranslationsBatch(array $terms, $drupal_lang, $pp_lang, array $info, array &$context) {
+  public function exportTranslationsBatch(array $tids, $drupal_lang, $pp_lang, array $info, array &$context) {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
@@ -663,6 +706,8 @@ class PPTaxonomyManager {
     $exported_terms = $context['results']['exported_terms'];
     //$default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
     $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
+
+    $terms = Term::loadMultiple($tids);
     /** @var Term $term */
     foreach ($terms as $term) {
       // Check if the term with the default language is already exported.
@@ -686,30 +731,37 @@ class PPTaxonomyManager {
 
         $uri = $exported_terms[$term->id()]['uri'];
         // Add pref, alt, hidden labels and definition.
-        $ppt->addLiteral($project_id, $uri, 'preferredLabel', $term->getName(), $pp_lang);
+        $ppt->addLiteral($project_id, $uri, 'preferredLabel', (!empty($term->getName()) ? $term->getName() : 'label not set'), $pp_lang);
         if (!empty($term->getDescription())) {
-          $ppt->addLiteral($project_id, $uri, 'definition', $term->getDescription(), $pp_lang);
+          $raw_description = str_replace(array("\r", "\n"), '', strip_tags($term->getDescription()));
+          if (!empty($raw_description)) {
+            $ppt->addLiteral($project_id, $uri, 'definition', $raw_description, $pp_lang);
+          }
         }
         if ($settings['root_level'] == 'conceptscheme' || $parent_tids != array(0)) {
           $alt_label_values = $term->get('field_alt_labels')->getValue();
           if (!empty($alt_label_values)) {
             $alt_labels = explode(',', $alt_label_values[0]['value']);
             foreach ($alt_labels as $alt_label) {
-              $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+              if (!empty($alt_label)) {
+                $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
+              }
             }
           }
           $hidden_label_values = $term->get('field_hidden_labels')->getValue();
           if (!empty($hidden_label_values)) {
             $hidden_labels = explode(',', $hidden_label_values[0]['value']);
             foreach ($hidden_labels as $hidden_label) {
-              $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+              if (!empty($hidden_label)) {
+                $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+              }
             }
           }
           if (!empty($custom_fields)) {
             foreach ($custom_fields as $field_id => $field_schema) {
               if (isset($term->{$field_id})) {
                 $custom_field_values = $term->{$field_id}->getValue();
-                if (!empty($custom_field_values)) {
+                if (!empty($custom_field_values) && !empty($custom_field_values[0]['value'])) {
                   $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
                 }
               }
@@ -1156,6 +1208,18 @@ class PPTaxonomyManager {
       ));
       $term->delete();
     }
+
+    // Delete the "Concepts" term if it was created by the PowerTagging module.
+    $concepts_tids = \Drupal::entityQuery('taxonomy_term')
+      ->condition('vid', $vid)
+      ->condition('name', 'Concepts')
+      ->condition('field_uri', NULL, 'IS NULL')
+      ->execute();
+
+    if (!empty($concepts_tids)) {
+      $concepts_term = Term::load(reset($concepts_tids));
+      $concepts_term->delete();
+    }
   }
 
   /**
@@ -1255,13 +1319,16 @@ class PPTaxonomyManager {
   protected function mapTaxonomyTermDetails($term, $concept) {
     $term->setName($concept['prefLabel']);
     $term->get('field_uri')->setValue($concept['uri']);
+    $term->setDescription('');
     if (isset($concept['definitions'])) {
       $term->setDescription(implode(' ', $concept['definitions']));
     }
+    $term->get('field_alt_labels')->setValue('');
     if (isset($concept['altLabels'])) {
       // Remove multibyte-characters.
       $term->get('field_alt_labels')->setValue(preg_replace('/[[:^print:]]/', "", implode(',', $concept['altLabels'])));
     }
+    $term->get('field_hidden_labels')->setValue('');
     if (isset($concept['hiddenLabels'])) {
       // Remove multibyte-characters.
       $term->get('field_hidden_labels')->setValue(preg_replace('/[[:^print:]]/', "", implode(',', $concept['hiddenLabels'])));
@@ -1276,9 +1343,12 @@ class PPTaxonomyManager {
             'field_alt_labels',
             'field_hidden_labels',
             'field_exact_match',
-          )) && isset($concept['properties'][$field_schema['property']])
-        ) {
-          $term->get($field_id)->setValue($concept['properties'][$field_schema['property']]);
+          ))) {
+
+          $term->get($field_id)->setValue('');
+          if (isset($concept['properties'][$field_schema['property']])) {
+            $term->get($field_id)->setValue($concept['properties'][$field_schema['property']]);
+          }
         }
       }
     }
@@ -1405,6 +1475,7 @@ class PPTaxonomyManager {
     }
 
     $properties[] = 'skos:broader';
+    $properties[] = 'skos:definition';
 
     return $properties;
   }

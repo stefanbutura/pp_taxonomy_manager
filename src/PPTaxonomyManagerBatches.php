@@ -6,6 +6,7 @@
  */
 
 namespace Drupal\pp_taxonomy_manager;
+use Drupal\semantic_connector\SemanticConnector;
 use Drupal\taxonomy\Entity\Term;
 
 /**
@@ -17,8 +18,8 @@ class PPTaxonomyManagerBatches {
    *
    * @param PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
-   * @param Term[] $terms
-   *   The taxonomy terms that are to be exported.
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms that are to be exported.
    * @param string $drupal_lang
    *   The language of the taxonomy terms that are to be exported.
    * @param string $pp_lang
@@ -30,7 +31,7 @@ class PPTaxonomyManagerBatches {
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public static function exportTerms($manager, array $terms, $drupal_lang, $pp_lang, $root_uri, array $info, array &$context) {
+  public static function exportTerms($manager, array $tids, $drupal_lang, $pp_lang, $root_uri, array $info, array &$context) {
     if (!isset($context['results']['processed'])) {
       $context['results']['processed'] = 0;
       $context['results']['hash_update_processed'] = 0;
@@ -40,7 +41,7 @@ class PPTaxonomyManagerBatches {
       );
     }
 
-    $manager->exportBatch($terms, $drupal_lang, $pp_lang, $context);
+    $manager->exportBatch($tids, $drupal_lang, $pp_lang, $context);
     $remaining_time = $manager->calculateRemainingTime($info['start_time'], $context['results']['processed'], $info['total']);
 
     // Show the remaining time as a batch message.
@@ -75,19 +76,19 @@ class PPTaxonomyManagerBatches {
    *
    * @param PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
-   * @param Term[] $terms
-   *   The taxonomy terms that are to be exported.
+   * @param int[] $tids
+   *   The IDS of the taxonomy terms that are to be exported.
    * @param array $info
    *   An associative array of information about the batch process.
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public static function updateTermHashes($manager, array $terms, array $info, array &$context) {
-    $manager->updateHashBatch($terms, $info, $context);
+  public static function updateTermHashes($manager, array $tids, array $info, array &$context) {
+    $manager->updateHashBatch($tids, $info, $context);
     $remaining_time = $manager->calculateRemainingTime($info['start_time'], $context['results']['hash_update_processed'], $info['total']);
 
     // Show the remaining time as a batch message.
-    $context['message'] = t('Processed terms for adding connection to the concepts: %processed of %total.', array(
+    $context['message'] = t('Updating the hashes of the concepts: %processed of %total.', array(
         '%processed' => $context['results']['hash_update_processed'],
         '%total' => $info['total'],
       )) . '<br />' . t('Remaining time: %remaining_time.', array('%remaining_time' => $remaining_time));
@@ -98,8 +99,8 @@ class PPTaxonomyManagerBatches {
    *
    * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
-   * @param Term[] $terms
-   *   The taxonomy terms that are to be exported.
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms that are to be exported.
    * @param string $drupal_lang
    *   The language of the taxonomy terms that are to be exported.
    * @param string $pp_lang
@@ -109,8 +110,8 @@ class PPTaxonomyManagerBatches {
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public static function exportTermTranslations($manager, array $terms, $drupal_lang, $pp_lang, array $info, array &$context) {
-    $manager->exportTranslationsBatch($terms, $drupal_lang, $pp_lang, $info, $context);
+  public static function exportTermTranslations($manager, array $tids, $drupal_lang, $pp_lang, array $info, array &$context) {
+    $manager->exportTranslationsBatch($tids, $drupal_lang, $pp_lang, $info, $context);
     $remaining_time = $manager->calculateRemainingTime($info['start_time'], $context['results']['translation_processed'], $info['total']);
 
     // Show the remaining time as a batch message.
@@ -182,6 +183,16 @@ class PPTaxonomyManagerBatches {
         '@arguments' => print_r($error_operation[1], TRUE)
       ));
       drupal_set_message($message, 'error');
+    }
+
+    // If there are any global notifications and they could be caused by a missing
+    // sync, refresh the notifications.
+    $notifications = \Drupal::config('semantic_connector.settings')->get('global_notifications');
+    if (!empty($notifications)) {
+      $notification_config = SemanticConnector::getGlobalNotificationConfig();
+      if (isset($notification_config['actions']['pp_taxonomy_manager_pp_changes']) && $notification_config['actions']['pp_taxonomy_manager_pp_changes']) {
+        SemanticConnector::checkGlobalNotifications(TRUE);
+      }
     }
   }
 

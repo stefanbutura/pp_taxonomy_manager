@@ -40,11 +40,11 @@ class PPTaxonomyManagerImportForm extends FormBase {
 
     // Get the project.
     $connection = $config->getConnection();
-    $potential_projects = $connection->getApi('PPT')->getProjects();
+    $pp_projects = $connection->getApi('PPT')->getProjects();
     $project = NULL;
-    foreach ($potential_projects as $potential_project) {
-      if ($potential_project['id'] == ($settings['root_level'] == 'project' ? $root_uri : $config->getProjectId())) {
-        $project = $potential_project;
+    foreach ($pp_projects as $pp_project) {
+      if ($pp_project['id'] == ($settings['root_level'] == 'project' ? $root_uri : $config->getProjectId())) {
+        $project = $pp_project;
         break;
       }
     }
@@ -80,8 +80,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     }
 
     // Check if the taxonomy is already connected with a concept scheme.
-    $configuration = $config->getConfig();
-    if (in_array($root_uri, $configuration['taxonomies'])) {
+    if (in_array($root_uri, $settings['taxonomies'])) {
       drupal_set_message(t('The %rootobject is already connected, please select another one.', array('%rootobject' => (($settings['root_level'] == 'conceptscheme') ? t('concept scheme') : t('project')) . ' ' . $root_object['title'])), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
@@ -226,7 +225,11 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $manager->addConnection($taxonomy->id(), $root_uri, $languages);
 
     // Import all concepts.
-    $manager->updateTaxonomyTerms('import', $taxonomy, $root_uri, $languages, $concepts_per_request);
+    try {
+      $manager->updateTaxonomyTerms('import', $taxonomy, $root_uri, $languages, $concepts_per_request);
+    } catch (\Exception $e) {
+      drupal_set_message($e->getMessage(), 'error');
+    }
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }
 }

@@ -73,8 +73,7 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     }
 
     // Check if the taxonomy is connected with a concept scheme.
-    $configuration = $config->getConfig();
-    if (!isset($configuration['taxonomies'][$taxonomy->id()])) {
+    if (!isset($settings['taxonomies'][$taxonomy->id()])) {
       drupal_set_message(t('The taxonomy %taxonomy is not connected, please export the taxonomy first.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
@@ -88,7 +87,7 @@ class PPTaxonomyManagerSyncForm extends FormBase {
 
     // Language mapping.
     $available_languages = \Drupal::languageManager()->getLanguages();
-
+    // Map the available languages and remove disabled ones.
     $enabled_languages = array();
     foreach ($available_languages as $lang) {
       if (!$lang->isLocked()) {
@@ -98,8 +97,10 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     $default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
 
     $form['languages'] = array(
-      '#type' => 'item',
-      '#title' => t('Map the Drupal languages with the PoolParty project languages'),
+      '#type' => 'details',
+      '#title' => t('Language Mapping'),
+      '#description' => t('Map the Drupal languages with the PoolParty project languages.'),
+      '#open' => TRUE,
       '#tree' => TRUE,
     );
 
@@ -153,7 +154,7 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     $form['cancel'] = array(
       '#type' => 'link',
       '#title' => t('Cancel'),
-      '#href' => 'admin/config/semantic-drupal/pp-taxonomy-manager/' . $config->id(),
+      '#url' => Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id())),
       '#suffix' => '</div>',
     );
 
@@ -216,7 +217,11 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     $manager->updateConnection($taxonomy->id(), $root_uri, $languages);
 
     // Update all taxonomy terms.
-    $manager->updateTaxonomyTerms('sync', $taxonomy, $root_uri, $languages, $concepts_per_request);
+    try {
+      $manager->updateTaxonomyTerms('sync', $taxonomy, $root_uri, $languages, $concepts_per_request);
+    } catch (\Exception $e) {
+      drupal_set_message($e->getMessage(), 'error');
+    }
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }
 }

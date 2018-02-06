@@ -243,7 +243,11 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
       '#suffix' => '</div>',
       '#options' => $project_options,
       '#default_value' => (!$is_new ? $entity->getProjectId() : NULL),
-      '#required' => TRUE,
+      '#states' => array(
+        'required' => array(
+          ':input[name="root_level"]' => array('value' => 'conceptscheme'),
+        ),
+      ),
       '#validated' => TRUE,
     );
 
