@@ -1747,7 +1747,7 @@ class PPTaxonomyManager {
                 }
               }
 
-              $notifications[] = t('PoolParty project "%ppproject" was updated and Drupal vocabulary "%vocname" needs to be synced.', array('%ppproject' => $project_title, '%vocname' => $taxonomy_title)) . (\Drupal::currentUser()->hasPermission('administer pp taxonomy manager') ? ' ' . Link::fromTextAndUrl('sync now', Url::fromRoute('entity.pp_taxonomy_manager.sync', array('config' => $config->id(), 'taxonomy' => $vid)))->toString() : '');
+              $notifications[] = t('PoolParty project "%ppproject" was updated and Drupal vocabulary "%vocname" needs to be synced.', array('%ppproject' => $project_title, '%vocname' => $taxonomy_title)) . (\Drupal::currentUser()->hasPermission('administer pp_taxonomy_manager') ? ' ' . Link::fromTextAndUrl('sync now', Url::fromRoute('entity.pp_taxonomy_manager.sync', array('config' => $config->id(), 'taxonomy' => $vid)))->toString() : '');
             }
           }
         }

@@ -119,3 +119,23 @@ entity.pp_taxonomy_manager.disconnect:
         type: entity:pp_taxonomy_manager
       taxonomy:
         type: entity:taxonomy_vocabulary
+
+pp_taxonomy_manager.suggest_concepts_config_list:
+  path: '/admin/config/semantic-drupal/pp-taxonomy-manager/suggest-concepts'
+  defaults:
+    _controller: '\Drupal\pp_taxonomy_manager\Controller\PPTaxonomyManagerController::suggestConceptsConfigList'
+    _title: 'Suggest Concepts'
+  requirements:
+    _custom_access: '\Drupal\pp_taxonomy_manager\Controller\PPTaxonomyManagerController::suggestConceptsAccess'
+
+pp_taxonomy_manager.suggest_concepts:
+  path: '/admin/config/semantic-drupal/pp-taxonomy-manager/suggest-concepts/{powertagging_config}'
+  defaults:
+    _form: '\Drupal\pp_taxonomy_manager\Form\PPTaxonomyManagerSuggestConceptsForm'
+    _title: 'Suggest concepts for a PowerTagging configuration'
+  requirements:
+    _permission: 'administer pp_taxonomy_manager'
+  options:
+    parameters:
+      powertagging_config:
+        type: entity:powertagging

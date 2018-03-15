@@ -56,6 +56,26 @@ var pp_taxonomy_manager_table_interval;
             clearInterval(pp_taxonomy_manager_table_interval);
           }
         }, 50);
+
+        $("table#pp-taxonomy-manager-suggest-concept-config-list-table").tablesorter({
+          widgets: ["zebra"],
+          widgetOptions: {
+            zebra: ["odd", "even"]
+          },
+          sortList: [[0, 0]],
+          headers: {
+            3: {sorter: false},
+            6: {sorter: false}
+          }
+        });
+
+        $("table#pp-taxonomy-manager-suggested-concepts-table").tablesorter({
+          widgets: ["zebra"],
+          widgetOptions: {
+            zebra: ["odd", "even"]
+          },
+          sortList: [[0, 0]]
+        });
       }
 
       if ($("form#pp-taxonomy-manager-add-form").length > 0) {
