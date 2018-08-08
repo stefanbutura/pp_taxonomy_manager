@@ -7,7 +7,7 @@ use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
  * Implements hook_taxonomy_term_delete().
  */
 function pp_taxonomy_manager_taxonomy_term_delete(\Drupal\taxonomy\Entity\Term $term) {
-  PPTaxonomyManager::deleteTaxonomyTerm($term);
+  PPTaxonomyManager::deleteTaxonomyTerm($term->id());
 }
 
 /**

@@ -144,6 +144,15 @@ class PPTaxonomyManagerImportForm extends FormBase {
       }
     }
 
+    $form['preserve_concepts'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Preserve old concepts'),
+      '#description' => t('If the concepts get imported into an existing taxonomy, taxonomy terms which can\'t be matched by URI or label normally get deleted') . '<br />' . t(' By checking "Preserve old concepts" instead of deleting them they get moved under a special concept named "Freeterms" without a URI.'),
+      '#default_value' => FALSE,
+    );
+
+    PPTaxonomyManager::addDataPropertySelection($form, ['skos:altLabel', 'skos:hiddenLabel']);
+
     $form['concepts_per_request'] = array(
       '#type' => 'textfield',
       '#title' => t('PoolParty concepts per request'),
@@ -209,8 +218,19 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $root_object = $form_state->get('root_object');
     $root_uri = ($settings['root_level'] == 'project') ? $root_object['id'] : $root_object['uri'];
 
+    // Get the data properties for the data fetching process.
+    $data_properties = [];
+    if (isset($values['data_properties'])) {
+      foreach ($values['data_properties'] as $property) {
+        if ($property) {
+          $data_properties[] = $property;
+        }
+      }
+    }
+
     $concepts_per_request = $values['concepts_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
+    $preserve_concepts = $values['preserve_concepts'];
 
     $manager = PPTaxonomyManager::getInstance($config);
 
@@ -222,11 +242,11 @@ class PPTaxonomyManagerImportForm extends FormBase {
     $manager->adaptTaxonomyFields($taxonomy);
 
     // Connect the new taxonomy with the concept scheme.
-    $manager->addConnection($taxonomy->id(), $root_uri, $languages);
+    $manager->addConnection($taxonomy->id(), $root_uri, $languages, $data_properties);
 
     // Import all concepts.
     try {
-      $manager->updateTaxonomyTerms('import', $taxonomy, $root_uri, $languages, $concepts_per_request);
+      $manager->updateTaxonomyTerms('import', $taxonomy, $root_uri, $languages, $data_properties, $preserve_concepts, $concepts_per_request);
     } catch (\Exception $e) {
       drupal_set_message($e->getMessage(), 'error');
     }

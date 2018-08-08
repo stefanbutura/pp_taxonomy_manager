@@ -90,9 +90,11 @@ class PPTaxonomyManager {
    * @param array $languages
    *   An array of language mappings between Drupal and PoolParty project
    *   languages.
+   * @param array $data_properties
+   *   An array of SKOS properties to be fetched.
    */
-  public function updateConnection($vid, $scheme_uri, $languages) {
-    $this->addConnection($vid, $scheme_uri, $languages);
+  public function updateConnection($vid, $scheme_uri, $languages, $data_properties) {
+    $this->addConnection($vid, $scheme_uri, $languages, $data_properties);
   }
 
   /**
@@ -105,11 +107,14 @@ class PPTaxonomyManager {
    * @param array $languages
    *   An array of language mappings between Drupal and PoolParty project
    *   languages.
+   * @param array $data_properties
+   *   An array of SKOS properties to be fetched.
    */
-  public function addConnection($vid, $scheme_uri, $languages) {
+  public function addConnection($vid, $scheme_uri, $languages, $data_properties) {
     $settings = $this->config->getConfig();
     $settings['taxonomies'][$vid] = $scheme_uri;
     $settings['languages'][$vid] = $languages;
+    $settings['data_properties'][$vid] = $data_properties;
     $this->config->setConfig($settings);
     $this->config->save();
   }
@@ -124,6 +129,7 @@ class PPTaxonomyManager {
     $settings = $this->config->getConfig();
     unset($settings['taxonomies'][$vid]);
     unset($settings['languages'][$vid]);
+    unset($settings['data_properties'][$vid]);
     $this->config->setConfig($settings);
     $this->config->save();
   }
@@ -231,9 +237,13 @@ class PPTaxonomyManager {
         'field_name' => $field['field_name'],
         'type' => $field['type'],
         'entity_type' => 'taxonomy_term',
-        'cardinality' => $field['cardinality'],
-        'settings' => $field['field_settings'],
       ];
+      if (isset($field['field_settings'])) {
+        $new_field['settings'] = $field['field_settings'];
+      }
+      if (isset($field['cardinality'])) {
+        $new_field['cardinality'] = $field['cardinality'];
+      }
       FieldStorageConfig::create($new_field)->save();
     }
   }
@@ -255,7 +265,7 @@ class PPTaxonomyManager {
         'label' => $field['label'],
         'description' => $field['description'],
         'required' => $field['required'],
-        'settings' => $field['instance_settings'],
+        'settings' => isset($field['instance_settings']) ? $field['instance_settings'] : [],
       ];
       FieldConfig::create($instance)->save();
     }
@@ -398,6 +408,25 @@ class PPTaxonomyManager {
       );
     }
 
+    // Set the export of related concepts operations.
+    for ($i = 0; $i < $count; $i += $terms_per_request) {
+      $terms = array_slice($tree, $i, $terms_per_request);
+      $tids = array();
+      /** @var Term $term */
+      foreach ($terms as $term) {
+        $tids[] = $term->id();
+      }
+
+      $batch['operations'][] = array(
+        array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'exportRelations'),
+        array(
+          $this,
+          $tids,
+          $info,
+        ),
+      );
+    }
+
     // Set the update hash table operations after the export of all terms.
     for ($i = 0; $i < $count; $i += $terms_per_request) {
       $terms = array_slice($tree, $i, $terms_per_request);
@@ -479,17 +508,7 @@ class PPTaxonomyManager {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
-    // Custom attribute fields.
-    $custom_fields = self::taxonomyFields();
-    $normal_fields = array(
-      'field_uri',
-      'field_alt_labels',
-      'field_hidden_labels',
-    );
-    foreach ($normal_fields as $normal_field) {
-      unset($custom_fields[$normal_field]);
-    }
-
+    $fields = self::taxonomyFields();
     $settings = $this->config->getConfig();
     $exported_terms = &$context['results']['exported_terms'];
     $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
@@ -532,35 +551,47 @@ class PPTaxonomyManager {
                     $ppt->addLiteral($project_id, $uri, 'definition', $raw_description, $pp_lang);
                   }
                 }
-                $alt_label_values = $term->get('field_alt_labels')->getValue();
-                if (!empty($alt_label_values)) {
-                  $alt_labels = explode(',', $alt_label_values[0]['value']);
-                  foreach ($alt_labels as $alt_label) {
-                    if (!empty($alt_label)) {
-                      $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
-                    }
+
+                // Add all other labels and data.
+                foreach ($fields as $field_id => $field_schema) {
+                  if (!isset($field_schema['push_key'])) {
+                    continue;
                   }
-                }
-                $hidden_label_values = $term->get('field_hidden_labels')
-                  ->getValue();
-                if (!empty($hidden_label_values)) {
-                  $hidden_labels = explode(',', $hidden_label_values[0]['value']);
-                  foreach ($hidden_labels as $hidden_label) {
-                    if (!empty($hidden_label)) {
-                      $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
+                  if (isset($term->{$field_id})) {
+                    $custom_field_values = $term->{$field_id}->getValue();
+                    if (isset($field_schema['cardinality']) && $field_schema['cardinality'] != 1) {
+                      foreach ($custom_field_values as $value) {
+                        $value = trim(isset($value['value']) ? $value['value'] : (isset($value['uri']) ? $value['uri'] : ''));
+                        if (!empty($value)) {
+                          $ppt->addLiteral($project_id, $uri, $field_schema['push_key'], $value, $pp_lang);
+                        }
+                      }
                     }
-                  }
-                }
-                if (!empty($custom_fields)) {
-                  foreach ($custom_fields as $field_id => $field_schema) {
-                    if (isset($term->{$field_id})) {
-                      $custom_field_values = $term->{$field_id}->getValue();
-                      if (!empty($custom_field_values) && !empty($custom_field_values[0]['value'])) {
-                        $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
+                    else {
+                      $char = isset($field_schema['merge_char']) ? $field_schema['merge_char'] : ',';
+                      $field_value = (isset($custom_field_values[0]['value']) ? $custom_field_values[0]['value'] : (isset($custom_field_values[0]['uri']) ? $custom_field_values[0]['uri'] : ''));
+                      if ($char == ' ') {
+                        $values = [$field_value];
+                      }
+                      else {
+                        $values = explode($char, $field_value);
+                      }
+                      foreach ($values as $value) {
+                        $value = trim($value);
+                        if (!empty($value)) {
+                          $ppt->addLiteral($project_id, $uri, $field_schema['push_key'], $value, $pp_lang);
+                        }
                       }
                     }
                   }
                 }
+              }
+
+              // Save the old URI for any relations between concepts on URI
+              // basis.
+              $old_uri = NULL;
+              if ($term->hasField('field_uri') && $term->get('field_uri')->count()) {
+                $old_uri = $term->get('field_uri')->getString();
               }
 
               // Update term with the new URI.
@@ -569,6 +600,7 @@ class PPTaxonomyManager {
 
               $exported_terms[$term->id()] = array(
                 'uri' => $uri,
+                'old_uri' => $old_uri,
                 'parents' => array($parent_tid),
                 'drupalLang' => $drupal_lang,
                 'ppLang' => $pp_lang,
@@ -602,6 +634,48 @@ class PPTaxonomyManager {
         }
       }
       $context['results']['processed']++;
+    }
+  }
+
+  /**
+   * Batch process method for exporting relations data.
+   *
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms in the default language.
+   * @param array $context
+   *   The batch context to transmit data between different calls.
+   */
+  public function exportRelationsBatch(array $tids, array &$context) {
+    /** @var $ppt SemanticConnectorPPTApi */
+    $ppt = $this->config->getConnection()->getAPI('PPT');
+    $settings = $this->config->getConfig();
+    $exported_terms = &$context['results']['exported_terms'];
+    $project_id = ($settings['root_level'] == 'conceptscheme' ? $this->config->getProjectId() : $exported_terms[0]['uri']);
+
+    $terms = Term::loadMultiple($tids);
+    /** @var Term $term */
+    foreach ($terms as $term) {
+      if (isset($exported_terms[$term->id()]) && !empty($term->field_uri)) {
+        $source = $term->get('field_uri')->getValue();
+        $related_concepts = $term->get('field_related_concepts')->getValue();
+        if (!empty($related_concepts)) {
+          $new_relation_uris = [];
+          foreach ($related_concepts as $uri) {
+            // Search for the new URI of the relation.
+            foreach ($exported_terms as $exported_term) {
+              if (isset($exported_term['old_uri']) && $exported_term['old_uri'] == $uri['uri'] && isset($exported_term['uri'])) {
+                $new_relation_uris[] = $exported_term['uri'];
+                $ppt->addRelation($project_id, $source[0]['uri'], $exported_term['uri'], 'skos:related');
+              }
+            }
+          }
+
+          // Update term with the new related concept URIs.
+          $term->get('field_related_concepts')->setValue($new_relation_uris);
+          $term->save();
+        }
+      }
+      $context['results']['related_concepts_processed']++;
     }
   }
 
@@ -691,17 +765,7 @@ class PPTaxonomyManager {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
-    // Custom attribute fields.
-    $custom_fields = self::taxonomyFields();
-    $normal_fields = array(
-      'field_uri',
-      'field_alt_labels',
-      'field_hidden_labels',
-    );
-    foreach ($normal_fields as $normal_field) {
-      unset($custom_fields[$normal_field]);
-    }
-
+    $fields = self::taxonomyFields();
     $settings = $this->config->getConfig();
     $exported_terms = $context['results']['exported_terms'];
     //$default_language = \Drupal::languageManager()->getDefaultLanguage()->getId();
@@ -730,39 +794,48 @@ class PPTaxonomyManager {
         }
 
         $uri = $exported_terms[$term->id()]['uri'];
-        // Add pref, alt, hidden labels and definition.
-        $ppt->addLiteral($project_id, $uri, 'preferredLabel', (!empty($term->getName()) ? $term->getName() : 'label not set'), $pp_lang);
-        if (!empty($term->getDescription())) {
-          $raw_description = str_replace(array("\r", "\n"), '', strip_tags($term->getDescription()));
-          if (!empty($raw_description)) {
-            $ppt->addLiteral($project_id, $uri, 'definition', $raw_description, $pp_lang);
-          }
-        }
-        if ($settings['root_level'] == 'conceptscheme' || $parent_tids != array(0)) {
-          $alt_label_values = $term->get('field_alt_labels')->getValue();
-          if (!empty($alt_label_values)) {
-            $alt_labels = explode(',', $alt_label_values[0]['value']);
-            foreach ($alt_labels as $alt_label) {
-              if (!empty($alt_label)) {
-                $ppt->addLiteral($project_id, $uri, 'alternativeLabel', $alt_label, $pp_lang);
-              }
+        if ($settings['root_level'] == 'conceptscheme' || count($parent_tids) > 0) {
+          // Add prefLabel and description.
+          $ppt->addLiteral($project_id, $uri, 'preferredLabel', (!empty($term->getName()) ? $term->getName() : 'label not set'), $pp_lang);
+          if (!empty($term->getDescription())) {
+            $raw_description = str_replace(array(
+              "\r",
+              "\n"
+            ), '', strip_tags($term->getDescription()));
+            if (!empty($raw_description)) {
+              $ppt->addLiteral($project_id, $uri, 'definition', $raw_description, $pp_lang);
             }
           }
-          $hidden_label_values = $term->get('field_hidden_labels')->getValue();
-          if (!empty($hidden_label_values)) {
-            $hidden_labels = explode(',', $hidden_label_values[0]['value']);
-            foreach ($hidden_labels as $hidden_label) {
-              if (!empty($hidden_label)) {
-                $ppt->addLiteral($project_id, $uri, 'hiddenLabel', $hidden_label, $pp_lang);
-              }
+
+          // Add all other labels and data.
+          foreach ($fields as $field_id => $field_schema) {
+            if (!isset($field_schema['push_key'])) {
+              continue;
             }
-          }
-          if (!empty($custom_fields)) {
-            foreach ($custom_fields as $field_id => $field_schema) {
-              if (isset($term->{$field_id})) {
-                $custom_field_values = $term->{$field_id}->getValue();
-                if (!empty($custom_field_values) && !empty($custom_field_values[0]['value'])) {
-                  $ppt->addCustomAttribute($project_id, $uri, $field_schema['property'], $custom_field_values[0]['value'], $pp_lang);
+            if (isset($term->{$field_id})) {
+              $custom_field_values = $term->{$field_id}->getValue();
+              if (isset($field_schema['cardinality']) && $field_schema['cardinality'] != 1) {
+                foreach ($custom_field_values as $value) {
+                  $value = trim(isset($value['value']) ? $value['value'] : (isset($value['uri']) ? $value['uri'] : ''));
+                  if (!empty($value)) {
+                    $ppt->addLiteral($project_id, $uri, $field_schema['push_key'], $value, $pp_lang);
+                  }
+                }
+              }
+              else {
+                $char = isset($field_schema['merge_char']) ? $field_schema['merge_char'] : ',';
+                $field_value = (isset($custom_field_values[0]['value']) ? $custom_field_values[0]['value'] : (isset($custom_field_values[0]['uri']) ? $custom_field_values[0]['uri'] : ''));
+                if ($char == ' ') {
+                  $values = [$field_value];
+                }
+                else {
+                  $values = explode($char, $field_value);
+                }
+                foreach ($values as $value) {
+                  $value = trim($value);
+                  if (!empty($value)) {
+                    $ppt->addLiteral($project_id, $uri, $field_schema['push_key'], $value, $pp_lang);
+                  }
                 }
               }
             }
@@ -770,19 +843,20 @@ class PPTaxonomyManager {
         }
 
         // Add hash data to the database.
+        // The term is a concept.
+        if ($settings['root_level'] == 'conceptscheme' || count($parent_tids) > 0) {
+          $concept = $ppt->getConcept($project_id, $uri, $this->skosProperties(), $pp_lang);
+        }
         // The term is a concept scheme.
-        if ($settings['root_level'] == 'project' && $parent_tids == array(0)) {
+        else {
           $concept = [];
           $schemes = $ppt->getConceptSchemes($project_id, $pp_lang);
           foreach ($schemes as $scheme) {
             if ($scheme['uri'] == $uri) {
               $concept = $scheme;
+              break;
             }
           }
-        }
-        // The term is a concept.
-        else {
-          $concept = $ppt->getConcept($project_id, $uri, $this->skosProperties(), $pp_lang);
         }
         $concept['drupalLang'] = $drupal_lang;
         $concept['ppLang'] = $pp_lang;
@@ -809,13 +883,18 @@ class PPTaxonomyManager {
    *   An array of languages:
    *    key = Drupal language
    *    value = PoolParty language.
+   * @param array $data_properties
+   *   An array of SKOS properties to be fetched.
+   * @param bool $preserve_concepts
+   *   TRUE if old concepts should be converted into freeterms, FALSE if they
+   *   should be deleted.
    * @param int $concepts_per_request
    *   Count of concepts per http request.
    *
    * @throws \Exception
    *   A regular exception in case of a operation-breaking error.
    */
-  public function updateTaxonomyTerms($update_type, Vocabulary $vocabulary, $root_uri, $languages, $concepts_per_request) {
+  public function updateTaxonomyTerms($update_type, Vocabulary $vocabulary, $root_uri, $languages, $data_properties, $preserve_concepts, $concepts_per_request) {
     $start_time = time();
 
     // Configure the batch data.
@@ -839,7 +918,8 @@ class PPTaxonomyManager {
     );
 
     // Get all the concepts from the PoolParty server per language.
-    $skos_properties = $this->skosProperties();
+    $data_properties[] = 'skos:broader';
+    $data_properties[] = 'skos:definition';
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getApi('PPT');
 
@@ -856,7 +936,7 @@ class PPTaxonomyManager {
         }
         foreach ($concept_schemes as $concept_scheme) {
           // Get the "hasTopConcept" relations of the scheme.
-          $top_concepts = $ppt->getTopConcepts($root_uri, $concept_scheme['uri'], $skos_properties, $pp_lang);
+          $top_concepts = $ppt->getTopConcepts($root_uri, $concept_scheme['uri'], $data_properties, $pp_lang);
           $concept_scheme_children = array();
           if (is_null($top_concepts)) {
             throw new \Exception('Error while fetching the top concepts for URI "' . $concept_scheme['uri'] . '"');
@@ -879,7 +959,7 @@ class PPTaxonomyManager {
 
           $top_term_uris[] = $concept_scheme['uri'] . '@' . $pp_lang;
           // Add the top concepts and concepts.
-          $tree = $ppt->getSubTree($root_uri, $concept_scheme['uri'], $skos_properties, $pp_lang);
+          $tree = $ppt->getSubTree($root_uri, $concept_scheme['uri'], $data_properties, $pp_lang);
           if (is_null($tree)) {
             throw new \Exception('Error while fetching the subtree for URI "' . $concept_scheme['uri'] . '"');
           }
@@ -903,7 +983,7 @@ class PPTaxonomyManager {
     else {
       foreach ($languages as $drupal_lang => $pp_lang) {
         $concepts[$pp_lang] = array();
-        $top_concepts = $ppt->getTopConcepts($this->config->getProjectId(), $root_uri, $skos_properties, $pp_lang);
+        $top_concepts = $ppt->getTopConcepts($this->config->getProjectId(), $root_uri, $data_properties, $pp_lang);
         if (is_null($top_concepts)) {
           throw new \Exception('Error while fetching the top concepts for URI "' . $root_uri . '"');
         }
@@ -913,7 +993,7 @@ class PPTaxonomyManager {
           }
         }
         // Includes top concepts and concepts.
-        $tree = $ppt->getSubTree($this->config->getProjectId(), $root_uri, $skos_properties, $pp_lang);
+        $tree = $ppt->getSubTree($this->config->getProjectId(), $root_uri, $data_properties, $pp_lang);
         if (is_null($tree)) {
           throw new \Exception('Error while fetching the subtree for URI "' . $root_uri . '"');
         }
@@ -971,7 +1051,7 @@ class PPTaxonomyManager {
     // Set the delete operations for the removed concepts.
     $batch['operations'][] = array(
       array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'deleteVocabulary'),
-      array($this, $vocabulary->id()),
+      array($this, $vocabulary->id(), $preserve_concepts),
     );
 
     // Set the log operation.
@@ -1070,6 +1150,27 @@ class PPTaxonomyManager {
             $term_exists = TRUE;
           }
         }
+        // Check if a term with the same label (without a URI) already exists.
+        else {
+          $label_query = \Drupal::database()->select('taxonomy_term_field_data', 't');
+          $label_query->fields('t', array('tid'));
+          $label_query->condition('t.vid', $vid);
+          $label_query->condition('t.name', $concept['prefLabel']);
+          // Only the ones without a URI, even though the rest should already
+          // be filtered out.
+          $label_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+          $label_query->isNull('u.field_uri_uri');
+
+          $tid = $label_query->execute()
+            ->fetchField();
+
+          if ($tid) {
+            $term = Term::load($tid);
+            if ($term !== FALSE) {
+              $term_exists = TRUE;
+            }
+          }
+        }
 
         if (!$term_exists) {
           $term = Term::create(array('vid' => $vid));
@@ -1098,7 +1199,12 @@ class PPTaxonomyManager {
         $uri = $this->getUri($concept);
         $hash = $this->hash($concept);
         $this->addHashData($term, $pp_lang, $uri, $hash, $info['start_time']);
-        $context['results']['created_terms'][$uri] = $term->id();
+        if ($term_exists) {
+          $context['results']['updated_terms'][$uri] = $term->id();
+        }
+        else {
+          $context['results']['created_terms'][$uri] = $term->id();
+        }
         $context['results']['processed']++;
         \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term created: %name (TID = %tid)', array(
           '%name' => $term->getName(),
@@ -1182,56 +1288,161 @@ class PPTaxonomyManager {
    *
    * @param string $vid
    *   The taxonomy ID where the terms should be updated.
+   * @param bool $preserve_concepts
+   *   TRUE if old concepts should be converted into freeterms, FALSE if they
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public function deleteBatch($vid, &$context) {
+  public function deleteBatch($vid, $preserve_concepts, &$context) {
     $all_terms = $context['results']['updated_terms'] + $context['results']['created_terms'] + $context['results']['skipped_terms'];
     $all_terms = array_values($all_terms);
+    $database = \Drupal::database();
 
-    $result_query = \Drupal::database()->select('pp_taxonomy_manager_terms', 't');
-    $result_query->fields('t', array('tid', 'uri'));
-    $result_query->condition('t.tmid', $this->config->id());
-    $result_query->condition('t.vid', $vid);
-
+    // Delete all terms with a URI, which were not part of the sync/import process.
+    $term_delete_query = $database->select('taxonomy_term_field_data', 't');
+    $term_delete_query->fields('t', array('tid', 'name'));
+    $term_delete_query->condition('t.vid', $vid);
+    $term_delete_query->join('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+    $term_delete_query->addField('u', 'field_uri_uri', 'uri');
     if (!empty($all_terms)) {
-      $result_query->condition('t.tid', $all_terms, 'NOT IN');
+      $term_delete_query->condition('t.tid', $all_terms, 'NOT IN');
     }
-    $result = $result_query->execute();
+    $delete_concepts = $term_delete_query->execute()
+      ->fetchAllAssoc('uri', \PDO::FETCH_ASSOC);
 
-    while ($record = $result->fetch()) {
-      $term = Term::load($record->tid);
-      $context['results']['deleted_terms'][$record->uri] = $record->tid;
-      \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term deleted: %name (TID = %tid)', array(
-        '%name' => $term->getName(),
-        '%tid' => $term->id(),
-      ));
-      $term->delete();
+    // Delete the old concepts.
+    if (!$preserve_concepts) {
+      foreach ($delete_concepts as $uri => $delete_concept) {
+        $delete_term = Term::load($delete_concept['tid']);
+        $delete_term->delete();
+        $context['results']['deleted_terms'][$uri] = $delete_concept['tid'];
+        \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term deleted: %name (TID = %tid)', array(
+          '%name' => $delete_concept['name'],
+          '%tid' => $delete_concept['tid'],
+        ));
+      }
+
+      // Check if a freeterm-term already exists.
+      $freeterm_tid_query = $database->select('taxonomy_term_field_data', 't');
+      $freeterm_tid_query->fields('t', array('tid'));
+      $freeterm_tid_query->condition('vid', $vid);
+      $freeterm_tid_query->condition('name', 'Free Terms');
+      $freeterm_tid_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+      $freeterm_tid_query->isNull('u.field_uri_uri');
+      $freeterm_tid = $freeterm_tid_query->execute()
+        ->fetchField();
+
+      // Check if there are any terms without URI left, which are not marked as
+      // freeterms.
+      $no_uri_query = \Drupal::database()->select('taxonomy_term_field_data', 't');
+      $no_uri_query->fields('t', array('tid', 'name'));
+      $no_uri_query->condition('t.vid', $vid);
+      $no_uri_query->condition('t.name', ['Concepts', 'Free Terms'], 'NOT IN');
+      $no_uri_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+      $no_uri_query->isNull('u.field_uri_uri');
+      if ($freeterm_tid) {
+        $no_uri_query->join('taxonomy_term_hierarchy', 'h', 'h.tid = t.tid');
+        $no_uri_query->condition('h.parent', $freeterm_tid, '<>');
+      }
+      $no_uri_terms = $no_uri_query->execute()
+        ->fetchAllAssoc('tid', \PDO::FETCH_ASSOC);
+
+      // Delete the terms.
+      foreach ($no_uri_terms as $no_uri_term_tid => $no_uri_term) {
+        $delete_term = Term::load($no_uri_term_tid);
+        $delete_term->delete();
+        $context['results']['deleted_terms']['__delete_freeterm__' . $no_uri_term_tid] = $no_uri_term_tid;
+        \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term deleted: %name (TID = %tid)', array(
+          '%name' => $no_uri_term['name'],
+          '%tid' => $no_uri_term['tid'],
+        ));
+      }
+    }
+    // Turn the old concepts into freeterms.
+    else {
+      $make_freeterm_tids = [];
+      foreach ($delete_concepts as $uri => $delete_concept) {
+        $make_freeterm_tids[] = $delete_concept['tid'];
+      }
+
+      if (!empty($make_freeterm_tids)) {
+        // Remove the URIs.
+        $database->delete('taxonomy_term__field_uri')
+          ->condition('entity_id', $make_freeterm_tids, 'IN')
+          ->execute();
+
+        // Remove them from the hash table.
+        $database->delete('pp_taxonomy_manager_terms')
+          ->condition('tid', $make_freeterm_tids, 'IN')
+          ->execute();
+      }
+
+      // Check for all terms without a URI.
+      $update_parent_query = $database->select('taxonomy_term_field_data', 't');
+      $update_parent_query->fields('t', array('tid'));
+      $update_parent_query->condition('t.vid', $vid);
+      $update_parent_query->condition('t.name', ['Concepts', 'Free Terms'], 'NOT IN');
+      $update_parent_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+      $update_parent_query->isNull('u.field_uri_uri');
+      $update_parent_tids = $update_parent_query->execute()
+        ->fetchCol();
+
+      // Move them under a freeterms-term.
+      if (!empty($update_parent_tids)) {
+        // Check if a freeterm-term already exists.
+        $freeterm_tid_query = $database->select('taxonomy_term_field_data', 't');
+        $freeterm_tid_query->fields('t', array('tid'));
+        $freeterm_tid_query->condition('vid', $vid);
+        $freeterm_tid_query->condition('name', 'Free Terms');
+        $freeterm_tid_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+        $freeterm_tid_query->isNull('u.field_uri_uri');
+        $freeterm_tid = $freeterm_tid_query->execute()
+          ->fetchField();
+
+        // Create the freeterm-term if it doesn't exist yet.
+        if (!$freeterm_tid) {
+          $term = Term::create([
+            'name' => 'Free Terms',
+            'vid' => $vid,
+          ]);
+          $term->save();
+          $freeterm_tid = $term->id();
+        }
+
+        // Update the parents of the preserved tags.
+        $database->update('taxonomy_term_hierarchy')
+          ->fields(array(
+            'parent' => $freeterm_tid,
+          ))
+          ->condition('tid', $update_parent_tids, 'IN')
+          ->execute();
+      }
     }
 
     // Delete the "Concepts" term if it was created by the PowerTagging module.
-    $concepts_tids = \Drupal::entityQuery('taxonomy_term')
-      ->condition('vid', $vid)
-      ->condition('name', 'Concepts')
-      ->condition('field_uri', NULL, 'IS NULL')
-      ->execute();
-
-    if (!empty($concepts_tids)) {
-      $concepts_term = Term::load(reset($concepts_tids));
-      $concepts_term->delete();
+    $static_delete_query = $database->select('taxonomy_term_field_data', 't');
+    $static_delete_query->fields('t', array('tid'));
+    $static_delete_query->condition('t.vid', $vid);
+    $static_delete_query->condition('t.name', 'Concepts');
+    $static_delete_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
+    $static_delete_query->isNull('u.field_uri_uri');
+    $concepts_tid = $static_delete_query->execute()
+      ->fetchField();
+    if (!empty($concepts_tid)) {
+      $delete_term = Term::load($concepts_tid);
+      $delete_term->delete();
     }
   }
 
   /**
    * Deletes the term from the hash table.
    *
-   * @param Term $term
-   *   The taxonomy term.
+   * @param int $tid
+   *   The ID of the taxonomy term.
    */
-  public static function deleteTaxonomyTerm($term) {
+  public static function deleteTaxonomyTerm($tid) {
     $delete_query = \Drupal::database()->delete('pp_taxonomy_manager_terms');
-    $delete_query->condition('vid', $term->getVocabularyId());
-    $delete_query->condition('tid', $term->id());
+    $delete_query->condition('tid', $tid);
     $delete_query->execute();
   }
 
@@ -1323,32 +1534,29 @@ class PPTaxonomyManager {
     if (isset($concept['definitions'])) {
       $term->setDescription(implode(' ', $concept['definitions']));
     }
-    $term->get('field_alt_labels')->setValue('');
-    if (isset($concept['altLabels'])) {
-      // Remove multibyte-characters.
-      $term->get('field_alt_labels')->setValue(preg_replace('/[[:^print:]]/', "", implode(',', $concept['altLabels'])));
-    }
-    $term->get('field_hidden_labels')->setValue('');
-    if (isset($concept['hiddenLabels'])) {
-      // Remove multibyte-characters.
-      $term->get('field_hidden_labels')->setValue(preg_replace('/[[:^print:]]/', "", implode(',', $concept['hiddenLabels'])));
-    }
 
-    // Add data for custom fields.
-    if (isset($concept['properties'])) {
-      $fields = self::taxonomyFields();
-      foreach ($fields as $field_id => $field_schema) {
-        if (!in_array($field_id, array(
-            'field_uri',
-            'field_alt_labels',
-            'field_hidden_labels',
-            'field_exact_match',
-          ))) {
-
-          $term->get($field_id)->setValue('');
-          if (isset($concept['properties'][$field_schema['property']])) {
-            $term->get($field_id)->setValue($concept['properties'][$field_schema['property']]);
+    $fields = self::taxonomyFields();
+    foreach ($fields as $field_id => $field_schema) {
+      if (!isset($field_schema['pull_key'])) {
+        continue;
+      }
+      if (isset($field_schema['cardinality']) && $field_schema['cardinality'] != 1) {
+        $values = [];
+        if (!empty($concept[$field_schema['pull_key']])) {
+          foreach ($concept[$field_schema['pull_key']] as $value) {
+            // Remove multibyte-characters.
+            $values[] = preg_replace('/[[:^print:]]/', "", $value);
           }
+        }
+        $term->get($field_id)->setValue($values);
+      }
+      else {
+        $term->get($field_id)->setValue('');
+        if (!empty($concept[$field_schema['pull_key']])) {
+          $char = isset($field_schema['merge_char']) ? $field_schema['merge_char'] : ',';
+          $value = implode($char, $concept[$field_schema['pull_key']]);
+          // Remove multibyte-characters.
+          $term->get($field_id)->setValue(preg_replace('/[[:^print:]]/', "", $value));
         }
       }
     }
@@ -1481,6 +1689,24 @@ class PPTaxonomyManager {
   }
 
   /**
+   * Returns all SKOS properties of the taxonomy fields.
+   *
+   * @return array
+   *   List of SKOS properties.
+   */
+  public static function getTaxonomyFieldProperties() {
+    $fields = self::taxonomyFields();
+    $properties = [];
+    foreach ($fields as $field) {
+      if (isset($field['property']) && !empty($field['property'])) {
+        $properties[$field['property']] = $field['label'];
+      }
+    }
+
+    return $properties;
+  }
+
+  /**
    * Returns the URI with language of a concept.
    *
    * @param array $concept
@@ -1508,7 +1734,7 @@ class PPTaxonomyManager {
         'description' => t('URI of the concept.'),
         'cardinality' => 1,
         'field_settings' => [],
-        'required' => TRUE,
+        'required' => FALSE,
         'instance_settings' => [
           'link_type' => LinkItemInterface::LINK_GENERIC,
           'title' => DRUPAL_DISABLED,
@@ -1534,6 +1760,9 @@ class PPTaxonomyManager {
           'weight' => 4,
         ],
         'property' => 'skos:altLabel',
+        'pull_key' => 'altLabels',
+        'push_key' => 'alternativeLabel',
+        'merge_char' => ',',
       ],
       'field_hidden_labels' => [
         'field_name' => 'field_hidden_labels',
@@ -1551,6 +1780,45 @@ class PPTaxonomyManager {
           'weight' => 5,
         ],
         'property' => 'skos:hiddenLabel',
+        'pull_key' => 'hiddenLabels',
+        'push_key' => 'hiddenLabel',
+        'merge_char' => ',',
+      ],
+      'field_scope_notes' => [
+        'field_name' => 'field_scope_notes',
+        'type' => 'string_long',
+        'label' => t('Scope notes'),
+        'description' => t('An information about the scope of a concept'),
+        'cardinality' => -1,
+        'required' => FALSE,
+        'instance_settings' => [],
+        'field_settings' => [],
+        'widget' => array(
+          'type' => 'string_textarea',
+          'weight' => 6,
+        ),
+        'property' => 'skos:scopeNote',
+        'pull_key' => 'scopeNotes',
+        'push_key' => 'scopeNote',
+      ],
+      'field_related_concepts' => [
+        'field_name' => 'field_related_concepts',
+        'type' => 'link',
+        'label' => t('Related concepts'),
+        'description' => t('URIs to related concepts'),
+        'cardinality' => -1,
+        'required' => FALSE,
+        'instance_settings' => [
+          'link_type' => LinkItemInterface::LINK_GENERIC,
+          'title' => DRUPAL_DISABLED,
+        ],
+        'field_settings' => [],
+        'widget' => array(
+          'type' => 'link_default',
+          'weight' => 7,
+        ),
+        'property' => 'skos:related',
+        'pull_key' => 'relateds',
       ],
       'field_exact_match' => [
         'field_name' => 'field_exact_match',
@@ -1566,9 +1834,10 @@ class PPTaxonomyManager {
         ],
         'widget' => [
           'type' => 'link_default',
-          'weight' => 6,
+          'weight' => 8,
         ],
         'property' => 'skos:exactMatch',
+        'pull_key' => 'exactMatch',
       ],
     ];
 
@@ -1755,5 +2024,24 @@ class PPTaxonomyManager {
     }
 
     return $notifications;
+  }
+
+  /**
+   * This method extends an existing form with the data properties.
+   *
+   * @param array $form
+   *   The form array.
+   * @param array $default_values
+   *   The default values.
+   */
+  public static function addDataPropertySelection(&$form, $default_values) {
+    $properties = PPTaxonomyManager::getTaxonomyFieldProperties();
+    $form['data_properties'] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('Select the properties that will be saved in addition to the taxonomy terms'),
+      '#description' => t('The data for the unselected properties will be deleted from the Drupal taxonomy.'),
+      '#options' => $properties,
+      '#default_value' => $default_values,
+    );
   }
 }

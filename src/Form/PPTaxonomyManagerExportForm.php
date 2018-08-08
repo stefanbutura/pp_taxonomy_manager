@@ -238,6 +238,10 @@ class PPTaxonomyManagerExportForm extends FormBase {
     $taxonomy = $form_state->get('taxonomy');
     $settings = $config->getConfig();
 
+    // Get the data properties for the data pushing process.
+    $properties = PPTaxonomyManager::getTaxonomyFieldProperties();
+    $data_properties = array_keys($properties);
+
     $terms_per_request = $values['terms_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
 
@@ -256,7 +260,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
 
     if ($root_uri !== FALSE) {
       // Connect the taxonomy with the new concept scheme / project.
-      $manager->addConnection($taxonomy->id(), $root_uri, $languages);
+      $manager->addConnection($taxonomy->id(), $root_uri, $languages, $data_properties);
 
       // Export all taxonomy terms.
       $manager->exportTaxonomyTerms($taxonomy, $root_uri, $languages, $terms_per_request);

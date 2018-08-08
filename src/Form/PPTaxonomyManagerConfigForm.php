@@ -17,6 +17,7 @@ use Drupal\powertagging\Entity\PowerTaggingConfig;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
 use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
 use Drupal\semantic_connector\Entity\SemanticConnectorPPServerConnection;
+use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
 
 class PPTaxonomyManagerConfigForm extends EntityForm {
@@ -25,6 +26,7 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
    */
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
+
     /** @var PPTaxonomyManagerConfig $entity */
     $entity = $this->entity;
 

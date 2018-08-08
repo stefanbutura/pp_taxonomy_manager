@@ -34,6 +34,7 @@ class PPTaxonomyManagerBatches {
   public static function exportTerms($manager, array $tids, $drupal_lang, $pp_lang, $root_uri, array $info, array &$context) {
     if (!isset($context['results']['processed'])) {
       $context['results']['processed'] = 0;
+      $context['results']['related_concepts_processed'] = 0;
       $context['results']['hash_update_processed'] = 0;
       $context['results']['translation_processed'] = 0;
       $context['results']['exported_terms'] = array(
@@ -69,6 +70,29 @@ class PPTaxonomyManagerBatches {
       ));
       drupal_set_message($message, 'error');
     }
+  }
+
+  /**
+   * Batch process function for exporting relation data.
+   *
+   * @param PPTaxonomyManager $manager
+   *   The PoolParty Taxonomy Manager object.
+   * @param int[] $tids
+   *   The IDs of the taxonomy terms in the default language.
+   * @param array $info
+   *   An associative array of information about the batch process.
+   * @param array $context
+   *   The batch context to transmit data between different calls.
+   */
+  public static function exportRelations($manager, array $tids, array $info, array &$context) {
+    $manager->exportRelationsBatch($tids, $context);
+    $remaining_time = $manager->calculateRemainingTime($info['start_time'], $context['results']['related_concepts_processed'], $info['total']);
+
+    // Show the remaining time as a batch message.
+    $context['message'] = t('Processed terms for adding related concept data: %processed of %total.', array(
+        '%processed' => $context['results']['processed'],
+        '%total' => $info['total'],
+      )) . '<br />' . t('Remaining time: %remaining_time.', array('%remaining_time' => $remaining_time));
   }
 
   /**
@@ -142,6 +166,7 @@ class PPTaxonomyManagerBatches {
   public static function updateTerms($manager, array $concepts, $pp_lang, $vid, $machine_name, array $info, array &$context) {
     if (!isset($context['results']['processed'])) {
       $context['results']['processed'] = 0;
+      $context['results']['related_concepts_processed'] = 0;
       $context['results']['processed_parents'] = 0;
       $context['results']['created_terms'] = array();
       $context['results']['updated_terms'] = array();
@@ -222,15 +247,18 @@ class PPTaxonomyManagerBatches {
   /**
    * Batch process function for deleting taxonomy terms.
    *
-   * @param object $manager
+   * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
    * @param int $vid
    *   The taxonomy ID where the terms should be deleted.
+   * @param bool $preserve_concepts
+   *   TRUE if old concepts should be converted into freeterms, FALSE if they
+   *   should be deleted.
    * @param array $context
    *   The batch context to transmit data between different calls.
    */
-  public static function deleteVocabulary($manager, $vid, array &$context) {
-    $manager->deleteBatch($vid, $context);
+  public static function deleteVocabulary($manager, $vid, $preserve_concepts, array &$context) {
+    $manager->deleteBatch($vid, $preserve_concepts, $context);
 
     // Show the batch message.
     $context['message'] = t('Removing taxonomy terms for all deleted concepts.');
@@ -239,7 +267,7 @@ class PPTaxonomyManagerBatches {
   /**
    * Batch process function to add statistic logs.
    *
-   * @param object $manager
+   * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
    *   The PoolParty Taxonomy Manager object.
    * @param int $vid
    *   The taxonomy ID where the terms should be updated.

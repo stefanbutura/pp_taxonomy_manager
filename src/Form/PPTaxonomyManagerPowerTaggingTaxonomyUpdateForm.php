@@ -111,6 +111,8 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
       }
     }
 
+    PPTaxonomyManager::addDataPropertySelection($form, []);
+
     $form['concepts_per_request'] = array(
       '#type' => 'textfield',
       '#title' => t('PoolParty concepts per request'),
@@ -177,6 +179,16 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     /** @var \Drupal\powertagging\Entity\PowerTaggingConfig $powertagging_config */
     $powertagging_config = $form_state->get('powertagging_config');
 
+    // Get the data properties for the data fetching process.
+    $data_properties = [];
+    if (isset($values['data_properties'])) {
+      foreach ($values['data_properties'] as $property) {
+        if ($property) {
+          $data_properties[] = $property;
+        }
+      }
+    }
+
     $concepts_per_request = $values['concepts_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
 
@@ -186,11 +198,11 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     $manager->adaptTaxonomyFields($taxonomy);
 
     // Update the connection.
-    $manager->addConnection($taxonomy->id(), $powertagging_config->getProjectId(), $languages);
+    $manager->addConnection($taxonomy->id(), $powertagging_config->getProjectId(), $languages, $data_properties);
 
     // Update all taxonomy terms.
     try {
-      $manager->updateTaxonomyTerms('powertagging_taxonomy_update', $taxonomy, $powertagging_config->getProjectId(), $languages, $concepts_per_request);
+      $manager->updateTaxonomyTerms('powertagging_taxonomy_update', $taxonomy, $powertagging_config->getProjectId(), $languages, $data_properties, TRUE, $concepts_per_request);
     } catch (\Exception $e) {
       drupal_set_message($e->getMessage(), 'error');
     }

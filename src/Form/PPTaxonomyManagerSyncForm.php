@@ -140,6 +140,9 @@ class PPTaxonomyManagerSyncForm extends FormBase {
       }
     }
 
+    $default_values = isset($settings['data_properties'][$taxonomy->id()]) ? $settings['data_properties'][$taxonomy->id()] : [];
+    PPTaxonomyManager::addDataPropertySelection($form, $default_values);
+
     $form['concepts_per_request'] = array(
       '#type' => 'textfield',
       '#title' => t('PoolParty concepts per request'),
@@ -203,6 +206,16 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     /** @var Vocabulary $taxonomy */
     $taxonomy = $form_state->get('taxonomy');
 
+    // Get the data properties for the data fetching process.
+    $data_properties = [];
+    if (isset($values['data_properties'])) {
+      foreach ($values['data_properties'] as $property) {
+        if ($property) {
+          $data_properties[] = $property;
+        }
+      }
+    }
+
     $concepts_per_request = $values['concepts_per_request'];
     $languages = PPTaxonomyManager::orderLanguages($values['languages']);
 
@@ -214,11 +227,11 @@ class PPTaxonomyManagerSyncForm extends FormBase {
     // Update the connection.
     $settings = $config->getConfig();
     $root_uri = $settings['taxonomies'][$taxonomy->id()];
-    $manager->updateConnection($taxonomy->id(), $root_uri, $languages);
+    $manager->updateConnection($taxonomy->id(), $root_uri, $languages, $data_properties);
 
     // Update all taxonomy terms.
     try {
-      $manager->updateTaxonomyTerms('sync', $taxonomy, $root_uri, $languages, $concepts_per_request);
+      $manager->updateTaxonomyTerms('sync', $taxonomy, $root_uri, $languages, $data_properties, FALSE, $concepts_per_request);
     } catch (\Exception $e) {
       drupal_set_message($e->getMessage(), 'error');
     }
