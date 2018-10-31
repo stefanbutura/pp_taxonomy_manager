@@ -1008,6 +1008,7 @@ class PPTaxonomyManager {
       'total' => $count,
       'start_time' => $start_time,
       'top_concept_uris' => $top_term_uris,
+      'vid' => $vocabulary->id(),
     );
 
     // Enable the translation for the taxonomy if required.
@@ -1256,10 +1257,15 @@ class PPTaxonomyManager {
       if (empty($parents)) {
         $parents = array(0);
       }
-      foreach ($parents as $parent_tid) {
+      foreach ($parents as $delta => $parent_tid) {
         $parent_values[] = array(
-          'tid' => $all_terms[$concept_uri],
-          'parent' => (int) $parent_tid,
+          'bundle' => $info['vid'],
+          'deleted' => 0,
+          'entity_id' => $all_terms[$concept_uri],
+          'revision_id' => $all_terms[$concept_uri],
+          'langcode' => $concept['drupalLang'],
+          'delta' => $delta,
+          'parent_target_id' => (int) $parent_tid,
         );
       }
       $handled_tids[] = $all_terms[$concept_uri];
@@ -1268,13 +1274,13 @@ class PPTaxonomyManager {
 
     if (!empty($parent_values)) {
       // Delete old hierarchy values.
-      $delete_query = \Drupal::database()->delete('taxonomy_term_hierarchy');
-      $delete_query->condition('tid', $handled_tids, 'IN');
+      $delete_query = \Drupal::database()->delete('taxonomy_term__parent');
+      $delete_query->condition('entity_id', $handled_tids, 'IN');
       $delete_query->execute();
 
       // Insert new hierarchy values.
-      $query = \Drupal::database()->insert('taxonomy_term_hierarchy')
-        ->fields(array('tid', 'parent'));
+      $query = \Drupal::database()->insert('taxonomy_term__parent')
+        ->fields(array('bundle', 'deleted', 'entity_id', 'revision_id', 'langcode', 'delta', 'parent_target_id'));
 
       foreach ($parent_values as $parent_value) {
         $query->values($parent_value);
@@ -1341,8 +1347,8 @@ class PPTaxonomyManager {
       $no_uri_query->leftJoin('taxonomy_term__field_uri', 'u', 't.tid = u.entity_id');
       $no_uri_query->isNull('u.field_uri_uri');
       if ($freeterm_tid) {
-        $no_uri_query->join('taxonomy_term_hierarchy', 'h', 'h.tid = t.tid');
-        $no_uri_query->condition('h.parent', $freeterm_tid, '<>');
+        $no_uri_query->join('taxonomy_term__parent', 'p', 'p.entity_id = t.tid');
+        $no_uri_query->condition('p.parent_target_id', $freeterm_tid, '<>');
       }
       $no_uri_terms = $no_uri_query->execute()
         ->fetchAllAssoc('tid', \PDO::FETCH_ASSOC);
@@ -1410,11 +1416,11 @@ class PPTaxonomyManager {
         }
 
         // Update the parents of the preserved tags.
-        $database->update('taxonomy_term_hierarchy')
+        $database->update('taxonomy_term__parent')
           ->fields(array(
-            'parent' => $freeterm_tid,
+            'parent_target_id' => $freeterm_tid,
           ))
-          ->condition('tid', $update_parent_tids, 'IN')
+          ->condition('entity_id', $update_parent_tids, 'IN')
           ->execute();
       }
     }
