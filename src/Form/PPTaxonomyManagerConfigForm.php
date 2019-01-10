@@ -100,9 +100,9 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
       /** @var PowerTaggingConfig $powertagging_config */
       foreach ($powertagging_configs as $powertagging_config) {
         $powertagging_config_settings = $powertagging_config->getConfig();
-        if (isset($powertagging_config_settings['projects'])) {
+        if (isset($powertagging_config_settings['project'])) {
           $powertaggings[$powertagging_config->id()] = $powertagging_config;
-          $vid = $powertagging_config_settings['projects'][$powertagging_config->getProjectId()]['taxonomy_id'];
+          $vid = $powertagging_config_settings['project']['taxonomy_id'];
           $taxonomy_powertagging[$vid][] = $powertagging_config->id();
         }
       }
@@ -217,30 +217,16 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
         if (isset($settings['taxonomies'][$taxonomy->id()])) {
           $last_log = $entity->getLastLog($taxonomy->id());
           $sync_required = FALSE;
-          $powertagging_used = FALSE;
 
           // Create rows from connected taxonomies.
           if (isset($connected[$settings['taxonomies'][$taxonomy->id()]])) {
             $root_object = $connected[$settings['taxonomies'][$taxonomy->id()]];
             $action_update_taxonomy = Url::fromRoute('entity.pp_taxonomy_manager.sync' , array('config' => $entity->id(), 'taxonomy' => $taxonomy->id()));
-            // Check if this taxonomy / project combination is also used by a
-            // taxonomy manager configuration.
-            if (\Drupal::moduleHandler()->moduleExists('powertagging')) {
-              $project_id = ($settings['root_level'] === 'project' ? $root_object['uri'] : $entity->getProjectId());
-              $powertagging_configs = PowerTaggingConfig::loadMultiple();
-              /** @var PowerTaggingConfig $powertagging_config */
-              foreach ($powertagging_configs as $powertagging_config) {
-                if ($powertagging_config->getConnectionId() == $entity->getConnectionId() && $powertagging_config->getProjectId() == $project_id) {
-                  $powertagging_settings = $powertagging_config->getConfig();
-                  // If that taxonomy is already used for tagging hashes became
-                  // incorrect, therefore the PowerTagging update routing is
-                  // required.
-                  if ($powertagging_settings['project']['taxonomy_id'] == $taxonomy->id()) {
-                    $action_update_taxonomy = Url::fromRoute('entity.powertagging.update_vocabulary', ['powertagging_config' => $powertagging_config->id()]);
-                    $powertagging_used = TRUE;
-                  }
-                }
-              }
+            // If that taxonomy is already used for tagging hashes became
+            // incorrect, therefore the PowerTagging update routing is
+            // required.
+            if (isset($taxonomy_powertagging[$taxonomy->id()]) && !empty($taxonomy_powertagging[$taxonomy->id()])) {
+              $action_update_taxonomy = Url::fromRoute('entity.powertagging.update_vocabulary', ['powertagging_config' => $taxonomy_powertagging[$taxonomy->id()][0]]);
             }
 
             $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Sync from PoolParty'), $action_update_taxonomy)->toString();
@@ -267,11 +253,11 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
               $powertagging_config_labels[] = $powertagging_config->getTitle();
             }
             $config_plural = new PluralTranslatableMarkup(count($powertagging_config_labels), 'PowerTagging configuration', 'PowerTagging configurations');
-            $taxonomy_link .= t(' (used by @configpart "%powertaggingtitle")', array('@configpart' => $config_plural, '%powertaggingtitle' => implode('", "', $powertagging_config_labels)));
+            $taxonomy_link .= ' <span class="semantic-connector-italic">' . t('(used by @configpart "%powertaggingtitle")', array('@configpart' => $config_plural, '%powertaggingtitle' => implode('", "', $powertagging_config_labels))) . '</span>';
           }
 
           $connected_rows[] = array(
-            new FormattableMarkup($taxonomy_link . ($powertagging_used ? ' <span class="semantic-connector-italic">(used by PowerTagging)</span>' : ''), array()),
+            new FormattableMarkup($taxonomy_link, array()),
             new FormattableMarkup(implode(' | ', $operations), array()),
             $concept_scheme,
             (($last_log !== FALSE) ? t('%sorttimestampstarted: @starttime%brfinished: @endtime%brby: %username', array('@starttime' => \Drupal::service('date.formatter')->format($last_log['start_time'], 'short'), '@endtime' => \Drupal::service('date.formatter')->format($last_log['end_time'], 'short'), '%username' => new FormattableMarkup(Link::fromTextAndUrl($last_log['name'], Url::fromRoute('entity.user.canonical', array('user' => $last_log['uid'])))->toString(), array()), '%br' => new FormattableMarkup('<br />', array()), '%sorttimestamp' => new FormattableMarkup('<span style="display:none;">' . $last_log['start_time'] . '</span>', array()))) : ''),
