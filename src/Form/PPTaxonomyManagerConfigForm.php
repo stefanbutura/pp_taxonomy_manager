@@ -135,7 +135,7 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
           $powertagging_id = 0;
           foreach ($powertaggings as $powertagging_config) {
             if ($entity->getConnection()->getUrl() == $powertagging_config->getConnection()->getUrl() && $project['id'] == $powertagging_config->getProjectId()) {
-              $powertagging_id = $powertagging_config->powertagging_id;
+              $powertagging_id = $powertagging_config->id();
               break;
             }
           }
@@ -178,19 +178,22 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
         ->getApi('PPT')
         ->getConceptSchemes($entity->getProjectId());
 
-      foreach ($concept_schemes as $scheme) {
-        $operations = array();
-        if (in_array($scheme['uri'], $settings['taxonomies'])) {
-          $connected[$scheme['uri']] = $scheme;
-          continue;
-        }
+      if (is_array($concept_schemes)) {
+        foreach ($concept_schemes as $scheme) {
+          $operations = array();
+          if (in_array($scheme['uri'], $settings['taxonomies'])) {
+            $connected[$scheme['uri']] = $scheme;
+            continue;
+          }
 
-        $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $scheme['uri']))))->toString();
-        $rows[] = array(
-          new FormattableMarkup('<div class="semantic-connector-italic">' . t('not yet connected') . '</div>', array()),
-          new FormattableMarkup(implode(' | ', $operations), array()),
-          Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array('attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL))))),
-        );
+          $operations[] = '&lArr; ' . Link::fromTextAndUrl(t('Import into Drupal'), Url::fromRoute('entity.pp_taxonomy_manager.import', array('config' => $entity->id()), array('query' => array('uri' => $scheme['uri']))))
+              ->toString();
+          $rows[] = array(
+            new FormattableMarkup('<div class="semantic-connector-italic">' . t('not yet connected') . '</div>', array()),
+            new FormattableMarkup(implode(' | ', $operations), array()),
+            Link::fromTextAndUrl($scheme['title'], Url::fromUri($scheme['uri'], array('attributes' => array('title' => ((isset($scheme['descriptions']) && !empty($scheme['descriptions'])) ? $scheme['descriptions'][0] : NULL))))),
+          );
+        }
       }
     }
 
