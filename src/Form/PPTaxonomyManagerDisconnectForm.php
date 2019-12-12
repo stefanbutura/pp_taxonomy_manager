@@ -37,19 +37,19 @@ class PPTaxonomyManagerDisconnectForm extends FormBase {
     // Check if concept scheme URI is given and is a url.
     // Check if taxonomy exists.
     if ($taxonomy === FALSE) {
-      drupal_set_message(t('The selected taxonomy does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The selected taxonomy does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     $settings = $config->getConfig();
     if ($settings['root_level'] == 'project' && !isset($settings['taxonomies'][$taxonomy->id()])) {
-      drupal_set_message(t('The selected taxonomy is not yet connected to PoolParty.'), 'error');
+      \Drupal::messenger()->addMessage(t('The selected taxonomy is not yet connected to PoolParty.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     // Check if the taxonomy is connected with a concept scheme.
     if (!isset($settings['taxonomies'][$taxonomy->id()])) {
-      drupal_set_message(t('The taxonomy %taxonomy is not connected, please export the taxonomy first.', array('%taxonomy' => $taxonomy->label())), 'error');
+      \Drupal::messenger()->addMessage(t('The taxonomy %taxonomy is not connected, please export the taxonomy first.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -102,7 +102,7 @@ class PPTaxonomyManagerDisconnectForm extends FormBase {
     $manager->deleteSyncData($taxonomy->id());
 
     $connection = $config->getConnection();
-    drupal_set_message(t('The connection between the Drupal taxonomy %taxonomy and the PoolParty server %server has been deleted successfully.', array(
+    \Drupal::messenger()->addMessage(t('The connection between the Drupal taxonomy %taxonomy and the PoolParty server %server has been deleted successfully.', array(
       '%taxonomy' => $taxonomy->label(),
       '%server' => $connection->getTitle(),
     )));

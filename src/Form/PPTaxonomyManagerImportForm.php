@@ -49,7 +49,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
       }
     }
     if (is_null($project)) {
-      drupal_set_message(t('The configured PoolParty project does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The configured PoolParty project does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -57,7 +57,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     if ($settings['root_level'] == 'conceptscheme') {
       // Check if concept scheme URI is given and is a url.
       if (!UrlHelper::isValid($root_uri, TRUE)) {
-        drupal_set_message(t('The URI from the selected concept scheme is not valid.'), 'error');
+        \Drupal::messenger()->addMessage(t('The URI from the selected concept scheme is not valid.'), 'error');
         return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
       }
 
@@ -71,7 +71,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
         }
       }
       if (is_null($root_object)) {
-        drupal_set_message(t('The selected concept scheme does not exists.'), 'error');
+        \Drupal::messenger()->addMessage(t('The selected concept scheme does not exists.'), 'error');
         return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
       }
     }
@@ -81,7 +81,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
 
     // Check if the taxonomy is already connected with a concept scheme.
     if (in_array($root_uri, $settings['taxonomies'])) {
-      drupal_set_message(t('The %rootobject is already connected, please select another one.', array('%rootobject' => (($settings['root_level'] == 'conceptscheme') ? t('concept scheme') : t('project')) . ' ' . $root_object['title'])), 'error');
+      \Drupal::messenger()->addMessage(t('The %rootobject is already connected, please select another one.', array('%rootobject' => (($settings['root_level'] == 'conceptscheme') ? t('concept scheme') : t('project')) . ' ' . $root_object['title'])), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -248,7 +248,7 @@ class PPTaxonomyManagerImportForm extends FormBase {
     try {
       $manager->updateTaxonomyTerms('import', $taxonomy, $root_uri, $languages, $data_properties, $preserve_concepts, $concepts_per_request);
     } catch (\Exception $e) {
-      drupal_set_message($e->getMessage(), 'error');
+      \Drupal::messenger()->addMessage($e->getMessage(), 'error');
     }
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }

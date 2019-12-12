@@ -4,4 +4,5 @@ description: 'Exports taxonomies to and imports vocabularies from a PoolParty Th
 package: Semantic Drupal
 core: 8.x
 dependencies:
+ - drupal:system (>=8.8)
  - semantic_connector:semantic_connector

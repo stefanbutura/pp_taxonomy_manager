@@ -166,7 +166,7 @@ class PPTaxonomyManager {
       ));
       $taxonomy->save();
 
-      drupal_set_message(t('Vocabulary %taxonomy successfully created.', array('%taxonomy' => $taxonomy_name)));
+      \Drupal::messenger()->addMessage(t('Vocabulary %taxonomy successfully created.', array('%taxonomy' => $taxonomy_name)));
       \Drupal::logger('pp_taxonomy_manager')->notice('Vocabulary created: %taxonomy (VID = %vid)', array(
         '%taxonomy' => $taxonomy_name,
         '%vid' => $taxonomy->id(),
@@ -219,7 +219,7 @@ class PPTaxonomyManager {
       $this->addFieldtoVocabulary($field, $vocabulary);
 
       // Set the widget data.
-      entity_get_form_display('taxonomy_term', $vocabulary->id(), 'default')
+      \Drupal::service('entity_display.repository')->getFormDisplay('taxonomy_term', $vocabulary->id())
         ->setComponent($field['field_name'], $field['widget'])
         ->save();
     }
@@ -293,7 +293,7 @@ class PPTaxonomyManager {
     /** @var SemanticConnectorPPTApi $ppt */
     $ppt = $this->config->getConnection()->getAPI('PPT');
     $scheme_uri = $ppt->createConceptScheme($this->config->getProjectId(), $scheme_title, $description);
-    drupal_set_message(t('Concept scheme %scheme successfully created.', array('%scheme' => $scheme_title)));
+    \Drupal::messenger()->addMessage(t('Concept scheme %scheme successfully created.', array('%scheme' => $scheme_title)));
     \Drupal::logger('pp_taxonomy_manager')->notice('Concept scheme created: %scheme (URI = %uri)', array(
       '%scheme' => $scheme_title,
       '%uri' => $scheme_uri,
@@ -335,7 +335,7 @@ class PPTaxonomyManager {
     $ppt = $this->config->getConnection()->getAPI('PPT');
 
     $project_id = $ppt->createProject($project_title, $default_language, array('Public'), array('description' => $description, 'availableLanguages' => $available_languages));
-    drupal_set_message(t('Project %project successfully created.', array('%project' => $project_title)));
+    \Drupal::messenger()->addMessage(t('Project %project successfully created.', array('%project' => $project_title)));
     \Drupal::logger('pp_taxonomy_manager')->notice('Project created: %project (ID = %id)', array(
       '%project' => $project_title,
       '%id' => $project_id,

@@ -60,7 +60,7 @@ class PPTaxonomyManagerBatches {
       $message = t('The export of %processed terms is completed successfully.', array(
         '%processed' => (isset($results['processed']) ? $results['processed'] : 0),
       ));
-      drupal_set_message($message);
+      \Drupal::messenger()->addMessage($message);
     }
     else {
       $error_operation = reset($operations);
@@ -68,7 +68,7 @@ class PPTaxonomyManagerBatches {
         '%error_operation' => $error_operation[0],
         '@arguments' => print_r($error_operation[1], TRUE)
       ));
-      drupal_set_message($message, 'error');
+      \Drupal::messenger()->addMessage($message, 'error');
     }
   }
 
@@ -199,7 +199,7 @@ class PPTaxonomyManagerBatches {
         '%deleted' => (isset($results['deleted_terms']) ? count($results['deleted_terms']) : 0),
         '%skipped' => (isset($results['skipped_terms']) ? count($results['skipped_terms']) : 0),
       ));
-      drupal_set_message($message);
+      \Drupal::messenger()->addMessage($message);
     }
     else {
       $error_operation = reset($operations);
@@ -207,7 +207,7 @@ class PPTaxonomyManagerBatches {
         '%error_operation' => $error_operation[0],
         '@arguments' => print_r($error_operation[1], TRUE)
       ));
-      drupal_set_message($message, 'error');
+      \Drupal::messenger()->addMessage($message, 'error');
     }
 
     // If there are any global notifications and they could be caused by a missing

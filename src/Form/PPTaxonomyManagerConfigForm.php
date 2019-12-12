@@ -363,7 +363,7 @@ class PPTaxonomyManagerConfigForm extends EntityForm {
     $entity->set('title', $form_state->getValue('title'));
     $entity->save();
 
-    drupal_set_message(t('PoolParty Taxonomy Manager configuration %title has been updated.', array('%title' => $entity->getTitle())));
+    \Drupal::messenger()->addMessage(t('PoolParty Taxonomy Manager configuration %title has been updated.', array('%title' => $entity->getTitle())));
     $form_state->setRedirectUrl(Url::fromRoute('entity.pp_taxonomy_manager.collection'));
   }
 }

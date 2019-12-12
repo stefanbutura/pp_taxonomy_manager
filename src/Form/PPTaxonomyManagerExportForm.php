@@ -38,7 +38,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
     // Check if concept scheme URI is given and is a url.
     // Check if taxonomy exists.
     if ($taxonomy === FALSE) {
-      drupal_set_message(t('The selected taxonomy does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The selected taxonomy does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -57,13 +57,13 @@ class PPTaxonomyManagerExportForm extends FormBase {
       }
     }
     if ($settings['root_level'] == 'conceptscheme' && is_null($project)) {
-      drupal_set_message(t('The configured PoolParty project does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The configured PoolParty project does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     // Check if the taxonomy is connected with a concept scheme.
     if (isset($settings['taxonomies'][$taxonomy->id()])) {
-      drupal_set_message(t('The taxonomy %taxonomy is already connected, please select another one.', array('%taxonomy' => $taxonomy->label())), 'error');
+      \Drupal::messenger()->addMessage(t('The taxonomy %taxonomy is already connected, please select another one.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -267,7 +267,7 @@ class PPTaxonomyManagerExportForm extends FormBase {
     }
     // The project could not be created.
     else {
-      drupal_set_message(t('There was an error during the creation of the project.'), 'error');
+      \Drupal::messenger()->addMessage(t('There was an error during the creation of the project.'), 'error');
     }
 
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));

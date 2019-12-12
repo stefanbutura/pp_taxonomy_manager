@@ -30,7 +30,7 @@ function pp_taxonomy_manager_taxonomy_vocabulary_delete(\Drupal\taxonomy\Entity\
       $manager->deleteSyncData($vocabulary->id());
 
       $connection = $config->getConnection();
-      drupal_set_message(t('The connection between the Drupal taxonomy %taxonomy and the PoolParty server %server has been deleted successfully.', array(
+      \Drupal::messenger()->addMessage(t('The connection between the Drupal taxonomy %taxonomy and the PoolParty server %server has been deleted successfully.', array(
         '%taxonomy' => $vocabulary->label(),
         '%server' => $connection->getTitle(),
       )));

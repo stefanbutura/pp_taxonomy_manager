@@ -335,7 +335,7 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
     if ($is_new) {
       // Configuration entities need an ID manually set.
       $entity->set('id', SemanticConnector::createUniqueEntityMachineName('pp_taxonomy_manager', $entity->get('title')));
-      drupal_set_message(t('PoolParty Taxonomy Manager configuration %title has been created.', array('%title' => $entity->get('title'))));
+      \Drupal::messenger()->addMessage(t('PoolParty Taxonomy Manager configuration %title has been created.', array('%title' => $entity->get('title'))));
 
       // Create the initial config.
       $settings = array(
@@ -344,7 +344,7 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
       $entity->setConfig($settings);
     }
     else {
-      drupal_set_message(t('Updated PoolParty Taxonomy Manager configuration %title.',
+      \Drupal::messenger()->addMessage(t('Updated PoolParty Taxonomy Manager configuration %title.',
         array('%title' => $entity->get('title'))));
     }
 
@@ -408,7 +408,7 @@ class PPTaxonomyManagerConfigConnectionForm extends EntityForm {
     }
 
     // Clear potential error messages thrown during the requests.
-    drupal_get_messages();
+    \Drupal::messenger()->deleteAll();
 
     return array(
       '#type' => 'markup',

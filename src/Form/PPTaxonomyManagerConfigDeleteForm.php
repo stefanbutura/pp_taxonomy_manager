@@ -45,7 +45,7 @@ class PPTaxonomyManagerConfigDeleteForm extends EntityConfirmFormBase{
     $entity = $this->getEntity();
     $entity->delete();
 
-    drupal_set_message(t('PoolParty Taxonomy Manager configuration "%title" has been deleted.', array('%title' => $entity->getTitle())));
+    \Drupal::messenger()->addMessage(t('PoolParty Taxonomy Manager configuration "%title" has been deleted.', array('%title' => $entity->getTitle())));
     $form_state->setRedirect('entity.pp_taxonomy_manager.collection');
   }
 }

@@ -38,7 +38,7 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
   public function buildForm(array $form, FormStateInterface $form_state, $config = NULL, $powertagging_config = NULL) {
     // Check if taxonomy exists.
     if (!is_object($powertagging_config)) {
-      drupal_set_message(t('The PowerTagging configuration does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The PowerTagging configuration does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -46,7 +46,7 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     $powertagging_settings = $powertagging_config->getConfig();
     $taxonomy = Vocabulary::load($powertagging_settings['projects'][$powertagging_config->getProjectId()]['taxonomy_id']);
     if ($taxonomy === FALSE) {
-      drupal_set_message(t('The selected taxonomy does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The selected taxonomy does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -62,14 +62,14 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
       }
     }
     if (is_null($project)) {
-      drupal_set_message(t('The configured PoolParty project does not exist.'), 'error');
+      \Drupal::messenger()->addMessage(t('The configured PoolParty project does not exist.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
     // Check if the taxonomy is connected with a concept scheme.
     $settings = $config->getConfig();
     if (isset($settings['taxonomies'][$taxonomy->id()])) {
-      drupal_set_message(t('The taxonomy %taxonomy is already a completed taxonomy, please use the normal syncronization process.', array('%taxonomy' => $taxonomy->label())), 'error');
+      \Drupal::messenger()->addMessage(t('The taxonomy %taxonomy is already a completed taxonomy, please use the normal syncronization process.', array('%taxonomy' => $taxonomy->label())), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()))->toString());
     }
 
@@ -204,7 +204,7 @@ class PPTaxonomyManagerPowerTaggingTaxonomyUpdateForm extends FormBase {
     try {
       $manager->updateTaxonomyTerms('powertagging_taxonomy_update', $taxonomy, $powertagging_config->getProjectId(), $languages, $data_properties, TRUE, $concepts_per_request);
     } catch (\Exception $e) {
-      drupal_set_message($e->getMessage(), 'error');
+      \Drupal::messenger()->addMessage($e->getMessage(), 'error');
     }
     $form_state->setRedirect('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $config->id()));
   }

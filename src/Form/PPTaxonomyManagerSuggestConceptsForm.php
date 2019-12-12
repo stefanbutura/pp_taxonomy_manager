@@ -37,7 +37,7 @@ class PPTaxonomyManagerSuggestConceptsForm extends FormBase {
     $database_connection = \Drupal::database();
     // Check if PowerTagging configuration exists.
     if (is_null($powertagging_config)) {
-      drupal_set_message(t('The selected PowerTagging configuration does not exists.'), 'error');
+      \Drupal::messenger()->addMessage(t('The selected PowerTagging configuration does not exists.'), 'error');
       return new RedirectResponse(Url::fromRoute('entity.pp_taxonomy_manager.suggest_concepts_config_list')->toString());
     }
 
@@ -247,10 +247,10 @@ class PPTaxonomyManagerSuggestConceptsForm extends FormBase {
     $ppt_api = $powertagging_config->getConnection()->getApi('PPT');
     $result = $ppt_api->suggestConcepts($powertagging_config->getProjectId(), $suggest_concepts);
     if (empty($result)) {
-      drupal_set_message(t('An error occurred while trying to suggest the concepts.'), 'error');
+      \Drupal::messenger()->addMessage(t('An error occurred while trying to suggest the concepts.'), 'error');
     }
     else {
-      drupal_set_message(t('Successfully suggested the selected concepts.'));
+      \Drupal::messenger()->addMessage(t('Successfully suggested the selected concepts.'));
     }
   }
 
