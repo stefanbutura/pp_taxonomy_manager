@@ -1,20 +1,21 @@
 <?php
 
+use Drupal\taxonomy\Entity\Term;
+use Drupal\taxonomy\Entity\Vocabulary;
 use Drupal\pp_taxonomy_manager\Entity\PPTaxonomyManagerConfig;
 use Drupal\pp_taxonomy_manager\PPTaxonomyManager;
 
 /**
  * Implements hook_taxonomy_term_delete().
  */
-function pp_taxonomy_manager_taxonomy_term_delete(\Drupal\taxonomy\Entity\Term $term) {
+function pp_taxonomy_manager_taxonomy_term_delete(Term $term) {
   PPTaxonomyManager::deleteTaxonomyTerm($term->id());
 }
 
 /**
  * Implements hook_taxonomy_vocabulary_delete().
  */
-function pp_taxonomy_manager_taxonomy_vocabulary_delete(\Drupal\taxonomy\Entity\Vocabulary $vocabulary) {
-  module_load_include('inc', 'pp_taxonomy_manager', 'includes/pp_taxonomy_manager.admin');
+function pp_taxonomy_manager_taxonomy_vocabulary_delete(Vocabulary $vocabulary) {
   $configs = PPTaxonomyManagerConfig::loadMultiple();
   // Disconnect all PP Taxonomy manager configurations from this vocabulary.
   /** @var PPTaxonomyManagerConfig $config */

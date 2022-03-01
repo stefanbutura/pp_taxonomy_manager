@@ -75,7 +75,7 @@ class PPTaxonomyManagerConfigListBuilder extends ConfigEntityListBuilder
     );
 
     if (isset($build['#links']['edit'])) {
-      $build['#links']['edit']['url'] = \Drupal\Core\Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $entity->id()));
+      $build['#links']['edit']['url'] = Url::fromRoute('entity.pp_taxonomy_manager.edit_config_form', array('pp_taxonomy_manager' => $entity->id()));
     }
 
     return $build;
