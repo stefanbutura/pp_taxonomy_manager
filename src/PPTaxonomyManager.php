@@ -1627,7 +1627,7 @@ class PPTaxonomyManager {
     $insert_query->fields(array(
       'tid' => $term->id(),
       'language' => $pp_lang,
-      'vid' => $term->getVocabularyId(),
+      'vid' => $term->bundle(),
       'tmid' => $this->config->id(),
       'synced' => $start_time,
       'uri' => $uri,
@@ -1654,7 +1654,7 @@ class PPTaxonomyManager {
       'synced' => $start_time,
       'hash' => $hash,
     ));
-    $update_query->condition('vid', $term->getVocabularyId());
+    $update_query->condition('vid', $term->bundle());
     $update_query->condition('tid', $term->id());
     $update_query->condition('language', $pp_lang);
     $update_query->execute();
