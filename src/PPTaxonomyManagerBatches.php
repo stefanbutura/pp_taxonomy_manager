@@ -6,6 +6,7 @@
  */
 
 namespace Drupal\pp_taxonomy_manager;
+use Drupal\semantic_connector\Api\SemanticConnectorPPTApi;
 use Drupal\semantic_connector\SemanticConnector;
 use Drupal\taxonomy\Entity\Term;
 
@@ -280,4 +281,19 @@ class PPTaxonomyManagerBatches {
     $end_time = time();
     $manager->addLog($vid, $info['start_time'], $end_time);
   }
+
+  /**
+   * Batch process function to updated related matches.
+   *
+   * @param \Drupal\pp_taxonomy_manager\PPTaxonomyManager $manager
+   *   The PoolParty taxonomy manager.
+   * @param array $related_match
+   *   The related match URI.
+   * @param array $context
+   *   The batch process context.
+   */
+  public static function updateRelatedMatchesLabels(PPTaxonomyManager $manager, $related_match, array &$context) {
+    $manager->updateRelatedMatchesLabels($related_match, $context);
+  }
+
 }

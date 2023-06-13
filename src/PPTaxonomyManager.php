@@ -6,6 +6,7 @@
  */
 
 namespace Drupal\pp_taxonomy_manager;
+use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Drupal\field\Entity\FieldConfig;
@@ -16,6 +17,7 @@ use Drupal\semantic_connector\Api\SemanticConnectorPPTApi;
 use Drupal\semantic_connector\SemanticConnector;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
+use Drupal\taxonomy\TermInterface;
 use Drupal\taxonomy\TermStorage;
 
 /**
@@ -1061,6 +1063,25 @@ class PPTaxonomyManager {
       array($this, $vocabulary->id(), $info),
     );
 
+    $related_matches = [];
+    $concepts_default_language = reset($concepts);
+    foreach ($concepts_default_language as $concept_item) {
+      if (empty($concept_item['relatedMatch'])) {
+        continue;
+      }
+
+      $related_matches = array_merge($related_matches, $concept_item['relatedMatch']);
+    }
+    $related_matches = array_unique($related_matches);
+
+    foreach ($related_matches as $related_match) {
+      // Update related matches labels.
+      $batch['operations'][] = array(
+        array('\Drupal\pp_taxonomy_manager\PPTaxonomyManagerBatches', 'updateRelatedMatchesLabels'),
+        array($this, $related_match),
+      );
+    }
+
     // Start the batch.
     batch_set($batch);
   }
@@ -1627,7 +1648,7 @@ class PPTaxonomyManager {
     $insert_query->fields(array(
       'tid' => $term->id(),
       'language' => $pp_lang,
-      'vid' => $term->getVocabularyId(),
+      'vid' => $term->bundle(),
       'tmid' => $this->config->id(),
       'synced' => $start_time,
       'uri' => $uri,
@@ -1654,7 +1675,7 @@ class PPTaxonomyManager {
       'synced' => $start_time,
       'hash' => $hash,
     ));
-    $update_query->condition('vid', $term->getVocabularyId());
+    $update_query->condition('vid', $term->bundle());
     $update_query->condition('tid', $term->id());
     $update_query->condition('language', $pp_lang);
     $update_query->execute();
@@ -1844,6 +1865,25 @@ class PPTaxonomyManager {
         ],
         'property' => 'skos:exactMatch',
         'pull_key' => 'exactMatch',
+      ],
+      'field_related_matching_concepts' => [
+        'field_name' => 'field_related_matching_concepts',
+        'type' => 'link',
+        'label' => t('Related matching concepts'),
+        'description' => t('URIs to related concepts'),
+        'cardinality' => -1,
+        'required' => FALSE,
+        'instance_settings' => [
+          'link_type' => LinkItemInterface::LINK_GENERIC,
+          'title' => DRUPAL_OPTIONAL,
+        ],
+        'field_settings' => [],
+        'widget' => array(
+          'type' => 'link_default',
+          'weight' => 9,
+        ),
+        'property' => 'skos:relatedMatch',
+        'pull_key' => 'relatedMatch',
       ],
     ];
 
@@ -2050,4 +2090,67 @@ class PPTaxonomyManager {
       '#default_value' => $default_values,
     );
   }
+
+  public function updateRelatedMatchesLabels($related_match, array &$context) {
+    $parsed_url = parse_url($related_match);
+    $base_url = $parsed_url['scheme'] . '://' . $parsed_url['host'] . '/' . explode('/', $parsed_url['path'])[1];
+    /** @var SemanticConnectorPPTApi $ppt */
+    $ppt = $this->config->getConnection()->getAPI('PPT');
+    $projects = $ppt->getProjects();
+
+    usort($projects, function ($a, $b) use ($base_url) {
+      if ($a['uri'] == $base_url) {
+        return -1;
+      }
+
+      if ($b['uri'] == $base_url) {
+        return 1;
+      }
+
+      return 0;
+    });
+
+    foreach ($projects as $project) {
+      if (empty($project['id'])) {
+        continue;
+      }
+      try {
+        $concept = $ppt->getConcept($project['id'], $related_match);
+      }
+      catch (\Exception $e) {}
+      if (empty($concept['prefLabel'])) {
+        continue;
+      }
+
+      $this->updateLinkFieldTitles('field_related_matching_concepts', $concept['uri'], $concept['prefLabel']);
+      break;
+    }
+  }
+
+  public function updateLinkFieldTitles($field, $uri, $title) {
+    $term_storage = \Drupal::entityTypeManager()
+      ->getStorage('taxonomy_term');
+    $terms = $term_storage
+      ->getQuery()
+      ->condition("$field.uri", $uri)
+      ->accessCheck(FALSE)
+      ->execute();
+
+    foreach ($terms as $term) {
+      $term = $term_storage->load($term);
+      if (!$term instanceof TermInterface) {
+        continue;
+      }
+
+      $values = $term->get($field)->getValue();
+      foreach ($values as &$value) {
+        if ($value['uri'] == $uri) {
+          $value['title'] = $title;
+        }
+      }
+      $term->set($field, $values);
+      $term->save();
+    }
+  }
+
 }
