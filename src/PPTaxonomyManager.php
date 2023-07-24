@@ -1312,6 +1312,9 @@ class PPTaxonomyManager {
     if (!$preserve_concepts) {
       foreach ($delete_concepts as $uri => $delete_concept) {
         $delete_term = Term::load($delete_concept['tid']);
+        if (!$delete_term) {
+          continue;
+        }
         $delete_term->delete();
         $context['results']['deleted_terms'][$uri] = $delete_concept['tid'];
         \Drupal::logger('pp_taxonomy_manager')->notice('Taxonomy term deleted: %name (TID = %tid)', array(
