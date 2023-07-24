@@ -1273,19 +1273,11 @@ class PPTaxonomyManager {
     }
 
     if (!empty($parent_values)) {
-      // Delete old hierarchy values.
-      $delete_query = \Drupal::database()->delete('taxonomy_term__parent');
-      $delete_query->condition('entity_id', $handled_tids, 'IN');
-      $delete_query->execute();
-
-      // Insert new hierarchy values.
-      $query = \Drupal::database()->insert('taxonomy_term__parent')
-        ->fields(array('bundle', 'deleted', 'entity_id', 'revision_id', 'langcode', 'delta', 'parent_target_id'));
-
       foreach ($parent_values as $parent_value) {
-        $query->values($parent_value);
+        $term = Term::load($parent_value['entity_id']);
+        $term->parent = ['target_id' => $parent_value['parent_target_id']];
+        $term->save();
       }
-      $query->execute();
     }
   }
 
