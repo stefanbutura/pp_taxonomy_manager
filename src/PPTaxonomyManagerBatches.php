@@ -212,7 +212,7 @@ class PPTaxonomyManagerBatches {
 
     // If there are any global notifications and they could be caused by a missing
     // sync, refresh the notifications.
-    $notifications = \Drupal::config('semantic_connector.settings')->get('global_notifications');
+    $notifications = SemanticConnector::getGlobalNotifications();
     if (!empty($notifications)) {
       $notification_config = SemanticConnector::getGlobalNotificationConfig();
       if (isset($notification_config['actions']['pp_taxonomy_manager_pp_changes']) && $notification_config['actions']['pp_taxonomy_manager_pp_changes']) {
