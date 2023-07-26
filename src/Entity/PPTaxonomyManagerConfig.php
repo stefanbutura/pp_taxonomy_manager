@@ -172,6 +172,7 @@ class PPTaxonomyManagerConfig extends ConfigEntityBase implements PPTaxonomyMana
    */
   public static function exist($id) {
     $entity_count = \Drupal::entityQuery('pp_taxonomy_manager')
+      ->accessCheck(TRUE)
       ->condition('id', $id)
       ->count()
       ->execute();

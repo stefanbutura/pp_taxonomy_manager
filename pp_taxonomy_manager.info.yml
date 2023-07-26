@@ -2,7 +2,7 @@ name: 'PoolParty Taxonomy Manager'
 type: module
 description: 'Exports taxonomies to and imports vocabularies from a PoolParty Thesaurus and keeps them in sync'
 package: Semantic Drupal
-core_version_requirement: ^8.7.7 || ^9
+core_version_requirement: ^8.7.7 || ^9 || ^10
 dependencies:
  - drupal:system (>=8.8)
- - semantic_connector:semantic_connector
+ - semantic_connector:semantic_connector (>=1.0)

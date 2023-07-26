@@ -1,0 +1,14 @@
+{
+    "name": "drupal/pp_taxonomy_manager",
+    "description": "Exports taxonomies to and imports vocabularies from a PoolParty Thesaurus and keeps them in sync",
+    "type": "drupal-module",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://www.drupal.org/project/pp_taxonomy_manager",
+    "support": {
+        "issues": "https://www.drupal.org/project/issues/pp_taxonomy_manager",
+        "source": "https://git.drupalcode.org/project/pp_taxonomy_manager"
+    },
+    "require": {
+        "drupal/semantic_connector": "^1.0"
+    }
+}

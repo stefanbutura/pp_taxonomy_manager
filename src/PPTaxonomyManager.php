@@ -1138,6 +1138,7 @@ class PPTaxonomyManager {
         $concept = $concepts[$uri];
 
         $query = \Drupal::entityQuery('taxonomy_term');
+        $query->accessCheck(TRUE);
         $query->condition('vid', $machine_name);
         $query->condition('field_uri', $concept['uri']);
 
